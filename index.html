@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   :root{
     --bg:#14171D; --panel:#1E222B; --panel-2:#181C24; --field:#161A21;
@@ -310,15 +311,20 @@ function daysBetween(tsStr){
   return (Date.now() - then.getTime()) / (1000*60*60*24);
 }
 
+/* ---------------------------------------------------------
+   SUPABASE CLIENT
+   This app is online-only: every read/write goes straight to
+   Supabase (Postgres + Auth), so there is no local persistence
+   to fall back on. See depotos_schema.sql for the full schema.
+--------------------------------------------------------- */
+const SUPABASE_URL = "https://nolgphfbmhvdurcwqrjg.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vbGdwaGZibWh2ZHVyY3dxcmpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2MTI2NzIsImV4cCI6MjEwMDE4ODY3Mn0.GUen_AC-McGDh-vkAMt3cKTsntqUMW4A8qG4644JoVE";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let _rtChannels = [];
+
 let state = {
-  // ACCOUNTS — the only data retained on reset.
-  users: [
-    { id: "u1", name: "Marisol Reyes", username: "mreyes", email: "mreyes@wh.local", role: "Admin", status: "offline", lastLogin: "—" },
-    { id: "u2", name: "Dante Cruz", username: "dcruz", email: "dcruz@wh.local", role: "Stock Clerk", status: "offline", lastLogin: "—" },
-    { id: "u3", name: "Priya Santos", username: "psantos", email: "psantos@wh.local", role: "Selling Clerk", status: "offline", lastLogin: "—" },
-    { id: "u4", name: "Wendell Ong", username: "wong", email: "wong@wh.local", role: "Stock Clerk", status: "offline", lastLogin: "—" },
-  ],
-  // Everything below is operational data — reset to empty.
+  // No sample accounts — every account comes from Supabase Auth.
+  users: [],
   categories: [],
   locators: [],
   inventory: [],
@@ -344,7 +350,80 @@ let state = {
   editItem: null,
   confirm: null,
   _notifiedRetention: false,
+  loading: true,
+  connectionError: null,
 };
+
+/* ---------------------------------------------------------
+   DATA LOADING (Supabase → local render cache)
+   The render*() functions all read from `state`, unchanged from
+   before — this layer just keeps `state` in sync with Postgres.
+--------------------------------------------------------- */
+function mapProfile(p) {
+  return { id: p.id, name: p.name, username: p.username, email: p.email, role: p.role, status: p.status, lastLogin: p.last_login };
+}
+function mapTxRow(t) {
+  return { id: t.id, type: t.type, sku: t.sku, description: t.description, qty: t.qty, locator: t.locator, notes: t.notes,
+    user: t.user_name, value: Number(t.value), timestamp: t.timestamp, inputMethod: t.input_method,
+    prefix: t.prefix, suffix: t.suffix, fullBarcodeFormatted: t.full_barcode_formatted, rawInput: t.raw_input };
+}
+function mapAdjRow(a) {
+  return { id: a.id, sku: a.sku, description: a.description, reason: a.reason, delta: a.delta,
+    qtyBefore: a.qty_before, qtyAfter: a.qty_after, notes: a.notes, user: a.user_name, timestamp: a.timestamp };
+}
+function mapInvRow(i) {
+  return { sku: i.sku, description: i.description, category: i.category, locator: i.locator, qty: i.qty, unitValue: Number(i.unit_value), reorder: i.reorder };
+}
+
+async function loadProfilesOnly() {
+  const { data, error } = await sb.from("profiles").select("*").order("name");
+  if (!error) state.users = (data || []).map(mapProfile);
+}
+
+async function loadAllData() {
+  const [profilesRes, categoriesRes, locatorsRes, inventoryRes, txRes, adjRes, logsRes, msgRes] = await Promise.all([
+    sb.from("profiles").select("*").order("name"),
+    sb.from("categories").select("*").order("name"),
+    sb.from("locators").select("*").order("code"),
+    sb.from("inventory").select("*").order("sku"),
+    sb.from("transactions").select("*").order("created_at", { ascending: false }).limit(1000),
+    sb.from("adjustments").select("*").order("created_at", { ascending: false }).limit(500),
+    sb.from("login_logs").select("*").order("created_at", { ascending: false }).limit(300),
+    sb.from("messages").select("*").or(`from_id.eq.${state.session.id},to_id.eq.${state.session.id}`).order("created_at", { ascending: true }),
+  ]);
+  state.users = (profilesRes.data || []).map(mapProfile);
+  state.categories = (categoriesRes.data || []).map(c => c.name);
+  state.locators = (locatorsRes.data || []).map(l => ({ code: l.code, zone: l.zone, description: l.description }));
+  state.inventory = (inventoryRes.data || []).map(mapInvRow);
+  state.transactions = (txRes.data || []).map(mapTxRow);
+  state.adjustments = (adjRes.data || []).map(mapAdjRow);
+  state.loginLogs = (logsRes.data || []).map(l => ({ user: l.user_name, role: l.role, action: l.action, timestamp: l.timestamp }));
+  state.messages = (msgRes.data || []).map(m => ({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp }));
+}
+
+function subscribeRealtime() {
+  unsubscribeRealtime();
+  const profCh = sb.channel("profiles-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => { loadProfilesOnly().then(render); })
+    .subscribe();
+  const msgCh = sb.channel("messages-changes")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+      const m = payload.new;
+      if (!state.session) return;
+      if (m.from_id === state.session.id || m.to_id === state.session.id) {
+        if (!state.messages.some(x => x.id === m.id)) {
+          state.messages.push({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp });
+          render();
+        }
+      }
+    })
+    .subscribe();
+  _rtChannels = [profCh, msgCh];
+}
+function unsubscribeRealtime() {
+  _rtChannels.forEach(ch => sb.removeChannel(ch));
+  _rtChannels = [];
+}
 
 function showToast(msg, tone) {
   state.toast = { msg, tone };
@@ -362,6 +441,9 @@ function canAdjust(){ return !!state.session && (state.session.role === "Admin" 
 
 /* ---------------------------------------------------------
    MESSAGE RETENTION (auto-purge after 3 months / ~90 days)
+   This hides expired messages from the UI immediately. To also
+   delete them at rest in Postgres, enable the optional pg_cron
+   job included at the bottom of depotos_schema.sql.
 --------------------------------------------------------- */
 function purgeOldMessages() {
   const before = state.messages.length;
@@ -370,36 +452,65 @@ function purgeOldMessages() {
 }
 
 /* ---------------------------------------------------------
-   AUTH ACTIONS
+   AUTH ACTIONS — backed by Supabase Auth (auth.users + profiles)
 --------------------------------------------------------- */
-function doLogin(username) {
-  const u = state.users.find(x => x.username.toLowerCase() === username.toLowerCase());
-  if (!u) return showToast("No account with that username", "danger");
-  u.status = "online"; u.lastLogin = fmt(0);
-  state.loginLogs.unshift({ user: u.name, role: u.role, action: "Signed in", timestamp: fmt(0) });
-  state.session = { ...u };
-  state.view = "dashboard";
-  render();
-}
-function doSignup(payload) {
-  if (state.users.some(u => u.username.toLowerCase() === payload.username.toLowerCase())) {
-    return showToast("Username already taken", "danger");
+async function doLogin(usernameOrEmail, password) {
+  try {
+    let email = usernameOrEmail;
+    if (!email.includes("@")) {
+      const { data: prof } = await sb.from("profiles").select("email").eq("username", usernameOrEmail).maybeSingle();
+      if (!prof) { showToast("No account with that username", "danger"); return; }
+      email = prof.email;
+    }
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) { showToast(error.message, "danger"); return; }
+    const { data: prof } = await sb.from("profiles").select("*").eq("id", data.user.id).single();
+    await sb.from("profiles").update({ status: "online", last_login: fmt(0) }).eq("id", data.user.id);
+    await sb.from("login_logs").insert({ user_name: prof.name, role: prof.role, action: "Signed in", timestamp: fmt(0) });
+    state.session = mapProfile({ ...prof, status: "online", last_login: fmt(0) });
+    state.view = "dashboard";
+    await loadAllData();
+    subscribeRealtime();
+    render();
+  } catch (err) {
+    showToast(err.message || "Sign-in failed", "danger");
   }
-  const newUser = {
-    id: "u" + (state.users.length + 1) + Math.floor(Math.random()*999),
-    name: payload.name, username: payload.username, email: payload.email,
-    role: payload.role, status: "online", lastLogin: fmt(0),
-  };
-  state.users.push(newUser);
-  state.loginLogs.unshift({ user: newUser.name, role: newUser.role, action: "Account created & signed in", timestamp: fmt(0) });
-  state.session = { ...newUser };
-  state.view = "dashboard";
-  render();
 }
-function doLogout() {
-  const u = state.users.find(x => x.id === state.session.id);
-  if (u) u.status = "offline";
-  state.loginLogs.unshift({ user: state.session.name, role: state.session.role, action: "Signed out", timestamp: fmt(0) });
+async function doSignup(payload) {
+  try {
+    const { data, error } = await sb.auth.signUp({
+      email: payload.email,
+      password: payload.password,
+      options: { data: { name: payload.name, username: payload.username, role: payload.role } },
+    });
+    if (error) { showToast(error.message, "danger"); return; }
+    if (!data.session) {
+      showToast("Account created — check your email to confirm it, then sign in.", "ok");
+      state.authMode = "login";
+      render();
+      return;
+    }
+    const { data: prof } = await sb.from("profiles").select("*").eq("id", data.user.id).single();
+    await sb.from("profiles").update({ status: "online", last_login: fmt(0) }).eq("id", data.user.id);
+    await sb.from("login_logs").insert({ user_name: prof.name, role: prof.role, action: "Account created & signed in", timestamp: fmt(0) });
+    state.session = mapProfile({ ...prof, status: "online", last_login: fmt(0) });
+    state.view = "dashboard";
+    await loadAllData();
+    subscribeRealtime();
+    render();
+  } catch (err) {
+    showToast(err.message || "Sign-up failed", "danger");
+  }
+}
+async function doLogout() {
+  try {
+    if (state.session) {
+      await sb.from("profiles").update({ status: "offline" }).eq("id", state.session.id);
+      await sb.from("login_logs").insert({ user_name: state.session.name, role: state.session.role, action: "Signed out", timestamp: fmt(0) });
+    }
+    await sb.auth.signOut();
+  } catch (err) { /* proceed to local sign-out regardless */ }
+  unsubscribeRealtime();
   state.session = null;
   state.authMode = "login";
   state.teamPanelOpen = false;
@@ -407,13 +518,43 @@ function doLogout() {
   render();
 }
 
+/* Restore session (or show sign-in) on page load. */
+async function boot() {
+  state.loading = true; state.connectionError = null;
+  render();
+  try {
+    const { data: { session }, error } = await sb.auth.getSession();
+    if (error) throw error;
+    if (session) {
+      const { data: prof, error: profErr } = await sb.from("profiles").select("*").eq("id", session.user.id).single();
+      if (profErr) throw profErr;
+      state.session = mapProfile(prof);
+      await loadAllData();
+      subscribeRealtime();
+    }
+  } catch (err) {
+    state.connectionError = err.message || String(err);
+  }
+  state.loading = false;
+  render();
+}
+sb.auth.onAuthStateChange((event) => {
+  if (event === "SIGNED_OUT" && state.session) {
+    state.session = null;
+    unsubscribeRealtime();
+    render();
+  }
+});
+
 /* ---------------------------------------------------------
    RENDER: ROOT
 --------------------------------------------------------- */
 function render() {
-  purgeOldMessages();
   const app = document.getElementById("app");
-  document.getElementById("stripe").style.display = state.session ? "none" : "block";
+  document.getElementById("stripe").style.display = (state.session && !state.loading) ? "none" : "block";
+  if (state.connectionError) { app.innerHTML = renderConnectionError(); return; }
+  if (state.loading) { app.innerHTML = renderLoading(); return; }
+  purgeOldMessages();
   app.innerHTML = state.session ? renderShell() : renderAuth();
   attachHandlers();
   syncScannerMode();
@@ -421,6 +562,21 @@ function render() {
     if (state.view === "lookup") mountLookupVirtualList();
     if (state.view === "transactions" && state.txTab === "stock") mountTxVirtualList();
   }
+}
+function renderLoading() {
+  return `<div class="auth-wrap"><div style="text-align:center;color:var(--muted);font-size:13.5px;display:flex;flex-direction:column;align-items:center;gap:14px;">
+    <div class="brand-mark">${ICONS.package}</div>
+    Connecting to Supabase…
+  </div></div>`;
+}
+function renderConnectionError() {
+  return `<div class="auth-wrap"><div class="auth-card" style="max-width:420px;text-align:center;">
+    <div style="color:var(--danger);margin-bottom:10px;display:flex;justify-content:center;">${ICONS.alert}</div>
+    <h3 style="margin:0 0 8px;">Can't reach Supabase</h3>
+    <p class="hint">${esc(state.connectionError)}</p>
+    <p class="hint">DEPOT/OS is online-only — it needs a working internet connection and Supabase project to run.</p>
+    <button class="btn btn-primary" onclick="boot()">Retry</button>
+  </div></div>`;
 }
 
 /* ---------------------------------------------------------
@@ -448,7 +604,7 @@ function renderAuth() {
         ${mode === "login" ? renderLoginForm() : renderSignupForm()}
       </div>
       <div style="text-align:center;font-size:11px;color:var(--dim);margin-top:18px;">
-        Prototype front-end — no real credentials required.
+        Connected to Supabase — accounts and data are real and persist across sessions.
       </div>
     </div>
   </div>`;
@@ -458,15 +614,15 @@ function t_tone(){ return state.toast?.tone === "danger" ? "danger" : "ok"; }
 function renderLoginForm() {
   return `
     <div style="display:flex;flex-direction:column;gap:14px;">
-      <label class="field"><span class="lbl">Username</span>
-        <input id="login-username" placeholder="e.g. mreyes" />
+      <label class="field"><span class="lbl">Username or email</span>
+        <input id="login-username" placeholder="e.g. mreyes or mreyes@yourco.com" />
       </label>
       <label class="field"><span class="lbl">Password</span>
-        <input type="password" placeholder="••••••••" />
+        <input id="login-password" type="password" placeholder="••••••••" />
       </label>
       <button class="btn btn-primary" style="margin-top:2px;" data-action="do-login">Sign in</button>
       <div style="font-size:11px;color:var(--dim);text-align:center;line-height:1.6;">
-        Try: mreyes (Admin) · dcruz (Stock Clerk) · psantos (Selling Clerk)
+        No account yet? Use "Create account" above.
       </div>
     </div>`;
 }
@@ -988,27 +1144,32 @@ function parseCSV(text) {
   }
   return rows;
 }
-function importCSVFile(file) {
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const rows = parseCSV(e.target.result);
-    if (rows.length === 0) { showToast("No valid rows found in that CSV", "danger"); return; }
-    let added = 0, updated = 0;
-    rows.forEach(r => {
-      const existing = state.inventory.find(i => i.sku === r.sku);
-      if (existing) {
-        Object.assign(existing, r, { category: r.category || existing.category });
-        updated++;
-      } else {
-        if (r.category && !state.categories.includes(r.category)) state.categories.push(r.category);
-        state.inventory.push(r);
-        added++;
-      }
-    });
-    showToast(`Import complete — ${added} added, ${updated} updated`, "ok");
-    render();
-  };
-  reader.readAsText(file);
+async function importCSVFile(file) {
+  const text = await file.text();
+  const rows = parseCSV(text);
+  if (rows.length === 0) { showToast("No valid rows found in that CSV", "danger"); return; }
+
+  const newCats = [...new Set(rows.map(r => r.category).filter(c => c && !state.categories.includes(c)))];
+  if (newCats.length) {
+    await sb.from("categories").upsert(newCats.map(name => ({ name })), { onConflict: "name" });
+    state.categories.push(...newCats);
+  }
+
+  const dbRows = rows.map(r => ({
+    sku: r.sku, description: r.description, category: r.category || null,
+    locator: r.locator || null, qty: r.qty, unit_value: r.unitValue, reorder: r.reorder,
+  }));
+  const { error } = await sb.from("inventory").upsert(dbRows, { onConflict: "sku" });
+  if (error) { showToast(`Import failed: ${error.message}`, "danger"); return; }
+
+  let added = 0, updated = 0;
+  rows.forEach(r => {
+    const existing = state.inventory.find(i => i.sku === r.sku);
+    if (existing) { Object.assign(existing, r, { category: r.category || existing.category }); updated++; }
+    else { state.inventory.push(r); added++; }
+  });
+  showToast(`Import complete — ${added} added, ${updated} updated`, "ok");
+  render();
 }
 
 /* Admin: add / edit / delete / reset (all qty-changing edits are
@@ -1048,7 +1209,7 @@ function renderEditItemModal() {
       </div>
     </div>`;
 }
-function saveEditItem() {
+async function saveEditItem() {
   const it = state.editItem;
   const sku = document.getElementById("ei-sku").value.trim();
   if (!sku) return showToast("SKU is required", "danger");
@@ -1061,21 +1222,32 @@ function saveEditItem() {
     unitValue: parseFloat(document.getElementById("ei-value").value) || 0,
     reorder: parseInt(document.getElementById("ei-reorder").value,10) || 0,
   };
+  const dbPayload = { sku: payload.sku, description: payload.description, category: payload.category || null,
+    locator: payload.locator || null, qty: payload.qty, unit_value: payload.unitValue, reorder: payload.reorder };
+
   if (it._isNew) {
     if (state.inventory.some(i => i.sku === sku)) return showToast("That SKU already exists", "danger");
+    const { error } = await sb.from("inventory").insert(dbPayload);
+    if (error) { showToast(error.code === "23505" ? "That SKU already exists" : error.message, "danger"); return; }
     state.inventory.push(payload);
     showToast("Item added", "ok");
   } else {
     const existing = state.inventory.find(i => i.sku === it.sku);
     const qtyBefore = existing.qty;
+    const { error } = await sb.from("inventory").update(dbPayload).eq("sku", it.sku);
+    if (error) { showToast(error.message, "danger"); return; }
     Object.assign(existing, payload);
     if (payload.qty !== qtyBefore) {
-      state.adjustments.unshift({
+      const adj = {
         id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
         sku: existing.sku, description: existing.description, reason: "Physical Count Correction",
         delta: payload.qty - qtyBefore, qtyBefore, qtyAfter: payload.qty,
         notes: "Quantity corrected via inventory item edit", user: state.session.name, timestamp: fmt(0),
-      });
+      };
+      await sb.from("adjustments").insert({ id: adj.id, sku: adj.sku, description: adj.description, reason: adj.reason,
+        delta: adj.delta, qty_before: adj.qtyBefore, qty_after: adj.qtyAfter, notes: adj.notes,
+        user_name: adj.user, user_id: state.session.id, timestamp: adj.timestamp });
+      state.adjustments.unshift(adj);
     }
     showToast("Item updated", "ok");
   }
@@ -1101,32 +1273,41 @@ function askConfirm(title, message, type, payload, confirmLabel) {
   state.confirm = { title, message, type, payload, confirmLabel };
   render();
 }
-function runConfirmedAction() {
+async function runConfirmedAction() {
   const c = state.confirm;
   if (!c) return;
   if (c.type === "reset-qty") {
-    state.inventory.forEach(i => {
-      if (i.qty !== 0) {
-        state.adjustments.unshift({
-          id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
-          sku: i.sku, description: i.description, reason: "Physical Count Correction",
-          delta: -i.qty, qtyBefore: i.qty, qtyAfter: 0,
-          notes: "Bulk reset — all quantities set to 0 via Inventory Lookup", user: state.session.name, timestamp: fmt(0),
-        });
-      }
-      i.qty = 0;
-    });
+    const toLog = state.inventory.filter(i => i.qty !== 0);
+    const adjRows = toLog.map(i => ({
+      id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000) + Math.floor(Math.random()*99),
+      sku: i.sku, description: i.description, reason: "Physical Count Correction",
+      delta: -i.qty, qty_before: i.qty, qty_after: 0,
+      notes: "Bulk reset — all quantities set to 0 via Inventory Lookup", user_name: state.session.name, user_id: state.session.id, timestamp: fmt(0),
+    }));
+    const { error: updErr } = await sb.from("inventory").update({ qty: 0 }).neq("sku", "");
+    if (updErr) { showToast(updErr.message, "danger"); state.confirm = null; render(); return; }
+    if (adjRows.length) await sb.from("adjustments").insert(adjRows);
+    state.inventory.forEach(i => i.qty = 0);
+    adjRows.forEach(a => state.adjustments.unshift(mapAdjRow(a)));
     showToast("All quantities reset to 0", "ok");
   } else if (c.type === "delete-item") {
+    const { error } = await sb.from("inventory").delete().eq("sku", c.payload);
+    if (error) { showToast(error.message, "danger"); state.confirm = null; render(); return; }
     state.inventory = state.inventory.filter(i => i.sku !== c.payload);
     showToast("Item deleted", "ok");
   } else if (c.type === "delete-locator") {
+    const { error } = await sb.from("locators").delete().eq("code", c.payload);
+    if (error) { showToast(error.message, "danger"); state.confirm = null; render(); return; }
     state.locators = state.locators.filter(l => l.code !== c.payload);
     showToast("Locator removed", "ok");
   } else if (c.type === "delete-user") {
+    const { error } = await sb.from("profiles").delete().eq("id", c.payload);
+    if (error) { showToast(error.message, "danger"); state.confirm = null; render(); return; }
     state.users = state.users.filter(u => u.id !== c.payload);
-    showToast("User removed", "ok");
+    showToast("User profile removed", "ok");
   } else if (c.type === "delete-category") {
+    const { error } = await sb.from("categories").delete().eq("name", c.payload);
+    if (error) { showToast(error.message, "danger"); state.confirm = null; render(); return; }
     state.categories = state.categories.filter(cat => cat !== c.payload);
     showToast("Category removed", "ok");
   }
@@ -1323,12 +1504,13 @@ function renderStockRow(row, idx, bulk) {
     </div>`;
 }
 
-function submitStock() {
+async function submitStock() {
   const validRows = state.rows.filter(r => r.sku && r.qty);
   if (validRows.length === 0) return showToast("Add at least one SKU with quantity", "danger");
 
   const type = state.stockType;
   let newTx = [];
+  let invUpdates = [];
   let hadError = false;
 
   validRows.forEach(r => {
@@ -1340,10 +1522,12 @@ function submitStock() {
       showToast(`${r.sku}: not enough stock on hand (${item.qty} available)`, "danger");
       hadError = true; return;
     }
-    item.qty = type === "IN" ? item.qty + qty : item.qty - qty;
+    const newQty = type === "IN" ? item.qty + qty : item.qty - qty;
+    invUpdates.push({ sku: item.sku, qty: newQty });
+    item.qty = newQty;
     const meta = r._barcodeMeta || {};
     newTx.push({
-      id: "T-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
+      id: "T-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000) + Math.floor(Math.random()*99),
       type, sku: r.sku, description: item.description, qty,
       locator: item.locator, notes: r.notes || "—", user: state.session.name,
       value: qty * item.unitValue, timestamp: fmt(0),
@@ -1359,10 +1543,24 @@ function submitStock() {
     if (!hadError) showToast("No valid SKUs found in inventory", "danger");
     return;
   }
+
+  const results = await Promise.all(invUpdates.map(u => sb.from("inventory").update({ qty: u.qty }).eq("sku", u.sku)));
+  const updateErr = results.find(r => r.error);
+  if (updateErr) { showToast(updateErr.error.message, "danger"); return; }
+
+  const { error: txErr } = await sb.from("transactions").insert(newTx.map(t => ({
+    id: t.id, type: t.type, sku: t.sku, description: t.description, qty: t.qty, locator: t.locator,
+    notes: t.notes, user_name: t.user, user_id: state.session.id, value: t.value, timestamp: t.timestamp,
+    input_method: t.inputMethod, prefix: t.prefix, suffix: t.suffix,
+    full_barcode_formatted: t.fullBarcodeFormatted, raw_input: t.rawInput,
+  })));
+  if (txErr) { showToast(txErr.message, "danger"); return; }
+
   state.transactions.unshift(...newTx);
   state.rows = [{ sku: "", description: "", qty: "", notes: "" }];
   state.barcodeManual = "";
   showToast(`${newTx.length} stock ${type==='IN'?'in':'out'} entr${newTx.length>1?'ies':'y'} recorded`, "ok");
+  render();
 }
 
 /* ---------------------------------------------------------
@@ -1422,7 +1620,7 @@ function renderAdjustments() {
     </div>
   `;
 }
-function submitAdjustment() {
+async function submitAdjustment() {
   const sku = document.getElementById("adj-sku").value.trim();
   const reason = document.getElementById("adj-reason").value;
   const delta = parseInt(document.getElementById("adj-delta").value, 10);
@@ -1435,12 +1633,24 @@ function submitAdjustment() {
 
   const qtyBefore = item.qty;
   const qtyAfter = Math.max(0, qtyBefore + delta);
-  item.qty = qtyAfter;
-  state.adjustments.unshift({
+
+  const { error: invErr } = await sb.from("inventory").update({ qty: qtyAfter }).eq("sku", sku);
+  if (invErr) { showToast(invErr.message, "danger"); return; }
+
+  const adj = {
     id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
     sku, description: item.description, reason, delta, qtyBefore, qtyAfter,
     notes, user: state.session.name, timestamp: fmt(0),
+  };
+  const { error: adjErr } = await sb.from("adjustments").insert({
+    id: adj.id, sku: adj.sku, description: adj.description, reason: adj.reason, delta: adj.delta,
+    qty_before: adj.qtyBefore, qty_after: adj.qtyAfter, notes: adj.notes,
+    user_name: adj.user, user_id: state.session.id, timestamp: adj.timestamp,
   });
+  if (adjErr) { showToast(adjErr.message, "danger"); return; }
+
+  item.qty = qtyAfter;
+  state.adjustments.unshift(adj);
   state._adjForm = { sku:"", reason: ADJUSTMENT_REASONS[0], delta:"", notes:"" };
   showToast(`Adjustment recorded — ${item.sku} now at ${qtyAfter}`, "ok");
   render();
@@ -1648,8 +1858,8 @@ function renderProfile() {
         <div style="display:flex;flex-direction:column;gap:14px;">
           <label class="field"><span class="lbl">Full name</span><input id="pf-name" value="${esc(s.name)}" /></label>
           <label class="field"><span class="lbl">Username</span><input id="pf-username" value="${esc(s.username)}" /></label>
-          <label class="field"><span class="lbl">Email</span><input id="pf-email" value="${esc(s.email)}" /></label>
-          <label class="field"><span class="lbl">New password</span><input type="password" placeholder="Leave blank to keep current password" /></label>
+          <label class="field"><span class="lbl">Email (login)</span><input id="pf-email" value="${esc(s.email)}" disabled /></label>
+          <p style="font-size:11px;color:var(--dim);margin:-6px 0 0;">Your login email is managed through Supabase Auth and isn't editable here.</p>
           <div style="display:flex;justify-content:flex-end;padding-top:6px;">
             <button class="btn btn-primary" data-action="save-profile">Save changes</button>
           </div>
@@ -1665,7 +1875,7 @@ function renderProfile() {
 function attachHandlers() {
   const app = document.getElementById("app");
 
-  app.onclick = (e) => {
+  app.onclick = async (e) => {
     const el = e.target.closest("[data-action]");
     if (!el) return;
     // ignore backdrop click if the actual click landed on the modal box
@@ -1675,17 +1885,20 @@ function attachHandlers() {
     if (action === "set-auth-mode") { state.authMode = el.dataset.mode; render(); }
     else if (action === "set-signup-role") { state._signupRole = el.dataset.role; render(); }
     else if (action === "do-login") {
-      const val = document.getElementById("login-username").value.trim();
-      doLogin(val);
+      const uname = document.getElementById("login-username").value.trim();
+      const pwd = document.getElementById("login-password").value;
+      if (!uname || !pwd) { showToast("Enter your username/email and password", "danger"); return; }
+      doLogin(uname, pwd);
     }
     else if (action === "do-signup") {
       const payload = {
         name: document.getElementById("su-name").value.trim(),
         username: document.getElementById("su-username").value.trim(),
         email: document.getElementById("su-email").value.trim(),
+        password: document.getElementById("su-password").value,
         role: state._signupRole || "Stock Clerk",
       };
-      if (payload.name && payload.username && payload.email) doSignup(payload);
+      if (payload.name && payload.username && payload.email && payload.password) doSignup(payload);
       else showToast("Please complete all fields", "danger");
     }
     else if (action === "do-logout") doLogout();
@@ -1698,7 +1911,7 @@ function attachHandlers() {
       if (state.rows.length === 0) state.rows.push({ sku:"", description:"", qty:"", notes:"" });
       render();
     }
-    else if (action === "submit-stock") submitStock();
+    else if (action === "submit-stock") await submitStock();
     else if (action === "submit-manual-barcode") {
       const inputEl = document.getElementById("barcode-manual-input");
       const val = inputEl ? inputEl.value.trim() : "";
@@ -1706,14 +1919,16 @@ function attachHandlers() {
       const payload = handleBarcodeInput(val, "manual");
       if (payload) state.barcodeManual = "";
     }
-    else if (action === "submit-adjustment") submitAdjustment();
+    else if (action === "submit-adjustment") await submitAdjustment();
     else if (action === "add-locator") {
       const f = state._locForm || {};
       if (!f.code) { showToast("Locator code is required", "danger"); return; }
-      if (state.locators.some(l => l.code === f.code)) { showToast("Locator code already exists", "danger"); return; }
+      const { error } = await sb.from("locators").insert({ code: f.code, zone: f.zone||"", description: f.description||"" });
+      if (error) { showToast(error.code === "23505" ? "Locator code already exists" : error.message, "danger"); return; }
       state.locators.push({ code: f.code, zone: f.zone||"", description: f.description||"" });
       state._locForm = { code:"", zone:"", description:"" };
       showToast("Locator added", "ok");
+      render();
     }
     else if (action === "remove-locator") {
       askConfirm("Remove locator?", `This deletes locator ${el.dataset.code}. Items already assigned to it will keep the code as a label.`, "delete-locator", el.dataset.code, "Remove");
@@ -1722,7 +1937,8 @@ function attachHandlers() {
       const input = document.getElementById("cat-new");
       const val = input.value.trim();
       if (!val) { showToast("Enter a category name", "danger"); return; }
-      if (state.categories.includes(val)) { showToast("That category already exists", "danger"); return; }
+      const { error } = await sb.from("categories").insert({ name: val });
+      if (error) { showToast(error.code === "23505" ? "That category already exists" : error.message, "danger"); return; }
       state.categories.push(val);
       showToast("Category added", "ok");
       render();
@@ -1732,14 +1948,16 @@ function attachHandlers() {
     }
     else if (action === "remove-user") {
       if (el.dataset.id === state.session.id) { showToast("You can't delete your own account while signed in", "danger"); return; }
-      askConfirm("Remove user?", "This account will lose access immediately.", "delete-user", el.dataset.id, "Remove");
+      askConfirm("Remove user?", "This removes their profile and access immediately. (Their login can only be fully deleted from the Supabase dashboard, since that requires admin-level API access.)", "delete-user", el.dataset.id, "Remove");
     }
     else if (action === "save-profile") {
-      state.session.name = document.getElementById("pf-name").value.trim();
-      state.session.username = document.getElementById("pf-username").value.trim();
-      state.session.email = document.getElementById("pf-email").value.trim();
+      const name = document.getElementById("pf-name").value.trim();
+      const username = document.getElementById("pf-username").value.trim();
+      const { error } = await sb.from("profiles").update({ name, username }).eq("id", state.session.id);
+      if (error) { showToast(error.code === "23505" ? "That username is taken" : error.message, "danger"); return; }
+      state.session.name = name; state.session.username = username;
       const u = state.users.find(u => u.id === state.session.id);
-      if (u) Object.assign(u, { name: state.session.name, username: state.session.username, email: state.session.email });
+      if (u) Object.assign(u, { name, username });
       showToast("Profile updated", "ok");
       render();
     }
@@ -1759,7 +1977,10 @@ function attachHandlers() {
       const input = document.getElementById("chat-input");
       const text = input.value.trim();
       if (!text) return;
-      state.messages.push({ id: "m"+Date.now(), from: state.session.id, to: state.chatWith, text, timestamp: fmt(0) });
+      const msg = { id: "m"+Date.now(), from_id: state.session.id, to_id: state.chatWith, text, timestamp: fmt(0) };
+      const { error } = await sb.from("messages").insert(msg);
+      if (error) { showToast(error.message, "danger"); return; }
+      state.messages.push({ id: msg.id, from: msg.from_id, to: msg.to_id, text: msg.text, timestamp: msg.timestamp });
       render();
     }
     else if (action === "trigger-import") document.getElementById("import-file").click();
@@ -1770,23 +1991,28 @@ function attachHandlers() {
     else if (action === "delete-item") askConfirm("Delete this SKU?", `${el.dataset.sku} will be permanently removed from inventory.`, "delete-item", el.dataset.sku, "Delete");
     else if (action === "reset-qty") askConfirm("Reset all quantities?", "Every SKU's on-hand quantity will be set to 0. Each change is logged to the audit trail as a Physical Count Correction.", "reset-qty", null, "Reset all");
     else if (action === "close-edit-item") { state.editItem = null; render(); }
-    else if (action === "save-edit-item") saveEditItem();
-    else if (action === "confirm-yes") runConfirmedAction();
+    else if (action === "save-edit-item") await saveEditItem();
+    else if (action === "confirm-yes") await runConfirmedAction();
     else if (action === "confirm-no") { state.confirm = null; render(); }
   };
 
-  app.onchange = (e) => {
+  app.onchange = async (e) => {
     if (e.target.id === "bulk-toggle") { state.bulk = e.target.checked; render(); }
     else if (e.target.id === "lookup-loc") { state.lookupLoc = e.target.value; updateLookupResults(); }
     else if (e.target.id === "lookup-cat") { state.lookupCat = e.target.value; updateLookupResults(); }
     else if (e.target.id === "adj-reason") { state._adjForm = state._adjForm || { sku:"", reason: ADJUSTMENT_REASONS[0], delta:"", notes:"" }; state._adjForm.reason = e.target.value; }
     else if (e.target.id === "import-file") {
-      if (e.target.files && e.target.files[0]) importCSVFile(e.target.files[0]);
+      if (e.target.files && e.target.files[0]) await importCSVFile(e.target.files[0]);
       e.target.value = "";
     }
     else if (e.target.dataset.action === "change-role") {
-      const u = state.users.find(u => u.id === e.target.dataset.id);
-      if (u) { u.role = e.target.value; showToast("Access level updated", "ok"); }
+      const uid = e.target.dataset.id;
+      const role = e.target.value;
+      const { error } = await sb.from("profiles").update({ role }).eq("id", uid);
+      if (error) { showToast(error.message, "danger"); return; }
+      const u = state.users.find(u => u.id === uid);
+      if (u) u.role = role;
+      showToast("Access level updated", "ok");
     }
   };
 
@@ -1835,7 +2061,7 @@ function refocus(idOrSelector, isSelector) {
   });
 }
 
-render();
+boot();
 </script>
 </body>
 </html>
