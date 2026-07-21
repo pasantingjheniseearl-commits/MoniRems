@@ -29,6 +29,7 @@
     background:var(--field); border:1px solid var(--line); border-radius:3px;
     padding:9px 12px; font-size:13.5px; color:var(--text); outline:none; width:100%; min-width:0;
   }
+  textarea{resize:vertical;font-family:inherit;}
   input::placeholder,textarea::placeholder{color:#5A6272;}
   input:focus,select:focus,textarea:focus{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent);}
   input:disabled{opacity:.55;cursor:not-allowed;}
@@ -76,6 +77,20 @@
   td{padding:9px 14px;border-bottom:1px solid var(--line-2);}
   tr:last-child td{border-bottom:none;}
   .pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:12px;font-size:12px;color:var(--muted);flex-wrap:wrap;}
+
+  /* ---- virtualized / windowed lists ---- */
+  .vtable{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--panel);}
+  .vtable-hscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .vtable-head{display:grid;background:var(--panel-2);border-bottom:1px solid var(--line);
+    font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);}
+  .vtable-head > div{padding:9px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;}
+  .vtable-viewport{position:relative;overflow-y:auto;overflow-x:hidden;}
+  .vtable-spacer{position:relative;}
+  .vtable-rows{position:absolute;left:0;right:0;top:0;will-change:transform;}
+  .vrow{display:grid;height:42px;border-bottom:1px solid var(--line-2);font-size:13.5px;}
+  .vrow:hover{background:#20242E;}
+  .vrow > div{padding:0 14px;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .vtable-empty{padding:44px 20px;text-align:center;color:var(--dim);font-size:13px;}
 
   /* ---- layout ---- */
   #app{min-height:100vh;width:100%;}
@@ -150,7 +165,7 @@
   .role-opt{padding:9px 6px;font-size:11.5px;border-radius:3px;border:1px solid var(--line);background:none;color:var(--muted);}
   .role-opt.active{border-color:var(--accent);background:var(--accent-dk);color:var(--accent);}
 
-  .stockin-tabs{display:flex;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:4px;width:fit-content;}
+  .stockin-tabs{display:flex;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:4px;width:fit-content;flex-wrap:wrap;}
   .stockin-tab{padding:9px 15px;font-size:13.5px;border-radius:3px;background:none;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap;}
   .stockin-tab.active-in{background:var(--ok-dk);color:var(--ok);}
   .stockin-tab.active-out{background:var(--accent-dk);color:var(--accent);}
@@ -208,6 +223,12 @@
   .banner{display:flex;align-items:flex-start;gap:10px;padding:11px 14px;border-radius:4px;border:1px solid var(--violet-bd);
     background:var(--violet-dk);color:#C9BFFF;font-size:12.5px;margin-bottom:16px;line-height:1.5;}
 
+  /* barcode banner (Stock In/Out only) */
+  .barcode-banner{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border:1px solid var(--accent-bd);
+    background:var(--accent-dk);border-radius:6px;margin-bottom:16px;}
+  .barcode-row{display:flex;gap:10px;margin-top:10px;}
+  @media(max-width:560px){.barcode-row{flex-direction:column;}}
+
   ::selection{background:var(--accent);color:#1C1017;}
 </style>
 </head>
@@ -216,6 +237,24 @@
 <div id="app"></div>
 
 <script>
+/* =============================================================
+   DEPOT/OS — Warehouse Monitor
+   Single-file prototype: state object + string-template render
+   functions + one delegated event listener. No build step.
+
+   EXTENDING THIS APP
+   1. Add a nav item in renderShell()'s navItems array (gate by role).
+   2. Add a case in renderView() pointing at a render<Name>() function.
+   3. Write render<Name>() following the existing render* functions.
+   4. Wire new buttons/inputs through attachHandlers() — add a branch
+      keyed on data-action (clicks) or element id (input/change).
+   State lives in one place: `state` below. Mutate it directly, then
+   call render() for a full repaint, or a targeted update function
+   (updateLookupResults, mountLookupVirtualList, mountTxVirtualList)
+   for high-frequency updates like search-as-you-type, so typing
+   doesn't repaint the whole app on every keystroke.
+============================================================= */
+
 /* ---------------------------------------------------------
    ICONS (inline SVG, stroke-based)
 --------------------------------------------------------- */
@@ -247,12 +286,17 @@ const ICONS = {
   back: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`,
   tag: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>`,
   filePdf: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+  barcode: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5v14"/><path d="M7 5v14"/><path d="M11 5v14"/><path d="M14 5v14"/><path d="M18 5v14"/><path d="M21 5v14"/></svg>`,
+  adjust: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>`,
 };
 
 /* ---------------------------------------------------------
-   SEED DATA
+   CONSTANTS / SEED DATA
+   NOTE: all operational data has been cleared to zero for a
+   fresh deployment. Only accounts (users) are retained.
 --------------------------------------------------------- */
 const ROLES = ["Admin", "Stock Clerk", "Selling Clerk"];
+const ADJUSTMENT_REASONS = ["Damaged", "Expired", "Stolen / Shrinkage", "Physical Count Correction", "Other"];
 
 function fmt(daysAgo = 0, h, m) {
   const d = new Date();
@@ -267,79 +311,40 @@ function daysBetween(tsStr){
 }
 
 let state = {
+  // ACCOUNTS — the only data retained on reset.
   users: [
-    { id: "u1", name: "Marisol Reyes", username: "mreyes", email: "mreyes@wh.local", role: "Admin", status: "online", lastLogin: "2026-07-20 07:52" },
-    { id: "u2", name: "Dante Cruz", username: "dcruz", email: "dcruz@wh.local", role: "Stock Clerk", status: "online", lastLogin: "2026-07-20 06:40" },
-    { id: "u3", name: "Priya Santos", username: "psantos", email: "psantos@wh.local", role: "Selling Clerk", status: "offline", lastLogin: "2026-07-19 17:12" },
-    { id: "u4", name: "Wendell Ong", username: "wong", email: "wong@wh.local", role: "Stock Clerk", status: "online", lastLogin: "2026-07-20 08:05" },
+    { id: "u1", name: "Marisol Reyes", username: "mreyes", email: "mreyes@wh.local", role: "Admin", status: "offline", lastLogin: "—" },
+    { id: "u2", name: "Dante Cruz", username: "dcruz", email: "dcruz@wh.local", role: "Stock Clerk", status: "offline", lastLogin: "—" },
+    { id: "u3", name: "Priya Santos", username: "psantos", email: "psantos@wh.local", role: "Selling Clerk", status: "offline", lastLogin: "—" },
+    { id: "u4", name: "Wendell Ong", username: "wong", email: "wong@wh.local", role: "Stock Clerk", status: "offline", lastLogin: "—" },
   ],
-  categories: ["Packaging Materials", "Pallets & Racking", "Cold Chain", "Hardware & Fasteners"],
-  locators: [
-    { code: "A1-R1-S1", zone: "Zone A", description: "Aisle 1, Rack 1, Shelf 1" },
-    { code: "A1-R1-S2", zone: "Zone A", description: "Aisle 1, Rack 1, Shelf 2" },
-    { code: "A1-R2-S1", zone: "Zone A", description: "Aisle 1, Rack 2, Shelf 1" },
-    { code: "B2-R1-S1", zone: "Zone B", description: "Aisle 2, Rack 1, Shelf 1" },
-    { code: "B2-R3-S2", zone: "Zone B", description: "Aisle 2, Rack 3, Shelf 2" },
-    { code: "C3-R1-S1", zone: "Zone C", description: "Aisle 3, Rack 1, Shelf 1" },
-    { code: "COLD-01", zone: "Cold Storage", description: "Cold storage bay 1" },
-  ],
-  inventory: [
-    { sku: "SKU-1001", description: "Corrugated Box 12x12x12", category: "Packaging Materials", locator: "A1-R1-S1", qty: 420, unitValue: 18.5, reorder: 100 },
-    { sku: "SKU-1002", description: "Stretch Wrap Film 500mm", category: "Packaging Materials", locator: "A1-R1-S2", qty: 36, unitValue: 210, reorder: 40 },
-    { sku: "SKU-1003", description: "Packing Tape Clear 48mm", category: "Packaging Materials", locator: "A1-R2-S1", qty: 210, unitValue: 32, reorder: 80 },
-    { sku: "SKU-1004", description: "Pallet Wood Standard", category: "Pallets & Racking", locator: "B2-R1-S1", qty: 58, unitValue: 350, reorder: 30 },
-    { sku: "SKU-1005", description: "Bubble Wrap Roll 1m x 100m", category: "Packaging Materials", locator: "B2-R3-S2", qty: 12, unitValue: 480, reorder: 15 },
-    { sku: "SKU-1006", description: "Zip Lock Bag 4x6", category: "Packaging Materials", locator: "C3-R1-S1", qty: 900, unitValue: 2.1, reorder: 300 },
-    { sku: "SKU-1007", description: "Frozen Sample Cartons", category: "Cold Chain", locator: "COLD-01", qty: 24, unitValue: 620, reorder: 20 },
-    { sku: "SKU-1008", description: "Cable Ties 300mm (100pk)", category: "Hardware & Fasteners", locator: "A1-R2-S1", qty: 65, unitValue: 95, reorder: 50 },
-  ],
-  transactions: [
-    { id: "T-9001", type: "IN", sku: "SKU-1001", description: "Corrugated Box 12x12x12", qty: 200, locator: "A1-R1-S1", notes: "PO-2201 receipt", user: "Dante Cruz", value: 3700, timestamp: fmt(1, 8, 15) },
-    { id: "T-9002", type: "OUT", sku: "SKU-1003", description: "Packing Tape Clear 48mm", qty: 40, locator: "A1-R2-S1", notes: "Selling area replenish", user: "Priya Santos", value: 1280, timestamp: fmt(1, 10, 5) },
-    { id: "T-9003", type: "OUT", sku: "SKU-1002", description: "Stretch Wrap Film 500mm", qty: 6, locator: "A1-R1-S2", notes: "Outbound shipment #552", user: "Priya Santos", value: 1260, timestamp: fmt(2, 9, 40) },
-    { id: "T-9004", type: "IN", sku: "SKU-1005", description: "Bubble Wrap Roll 1m x 100m", qty: 10, locator: "B2-R3-S2", notes: "PO-2202 receipt", user: "Wendell Ong", value: 4800, timestamp: fmt(2, 14, 0) },
-    { id: "T-9005", type: "OUT", sku: "SKU-1006", description: "Zip Lock Bag 4x6", qty: 150, locator: "C3-R1-S1", notes: "Selling area replenish", user: "Priya Santos", value: 315, timestamp: fmt(3, 11, 20) },
-    { id: "T-9006", type: "IN", sku: "SKU-1004", description: "Pallet Wood Standard", qty: 20, locator: "B2-R1-S1", notes: "Supplier drop-off", user: "Dante Cruz", value: 7000, timestamp: fmt(3, 13, 30) },
-    { id: "T-9007", type: "OUT", sku: "SKU-1007", description: "Frozen Sample Cartons", qty: 4, locator: "COLD-01", notes: "Selling area replenish", user: "Priya Santos", value: 2480, timestamp: fmt(4, 9, 10) },
-    { id: "T-9008", type: "IN", sku: "SKU-1008", description: "Cable Ties 300mm (100pk)", qty: 30, locator: "A1-R2-S1", notes: "PO-2203 receipt", user: "Wendell Ong", value: 2850, timestamp: fmt(5, 8, 50) },
-    { id: "T-9009", type: "OUT", sku: "SKU-1001", description: "Corrugated Box 12x12x12", qty: 60, locator: "A1-R1-S1", notes: "Outbound shipment #553", user: "Priya Santos", value: 1110, timestamp: fmt(5, 15, 40) },
-    { id: "T-9010", type: "OUT", sku: "SKU-1002", description: "Stretch Wrap Film 500mm", qty: 4, locator: "A1-R1-S2", notes: "Selling area replenish", user: "Priya Santos", value: 840, timestamp: fmt(6, 10, 0) },
-    { id: "T-9011", type: "IN", sku: "SKU-1003", description: "Packing Tape Clear 48mm", qty: 100, locator: "A1-R2-S1", notes: "PO-2204 receipt", user: "Dante Cruz", value: 3200, timestamp: fmt(6, 8, 30) },
-    { id: "T-9012", type: "OUT", sku: "SKU-1005", description: "Bubble Wrap Roll 1m x 100m", qty: 3, locator: "B2-R3-S2", notes: "Outbound shipment #554", user: "Priya Santos", value: 1440, timestamp: fmt(0, 8, 45) },
-  ],
-  loginLogs: [
-    { user: "Marisol Reyes", role: "Admin", action: "Signed in", timestamp: fmt(0, 7, 52) },
-    { user: "Wendell Ong", role: "Stock Clerk", action: "Signed in", timestamp: fmt(0, 8, 5) },
-    { user: "Dante Cruz", role: "Stock Clerk", action: "Signed in", timestamp: fmt(0, 6, 40) },
-    { user: "Priya Santos", role: "Selling Clerk", action: "Signed out", timestamp: fmt(1, 17, 12) },
-  ],
-  messages: [
-    { id: "m1", from: "u1", to: "u2", text: "Please recount pallet wood before end of day.", timestamp: fmt(2, 9, 5) },
-    { id: "m2", from: "u2", to: "u1", text: "On it — will update the count by 3pm.", timestamp: fmt(2, 9, 20) },
-    { id: "m4", from: "u4", to: "u3", text: "Zip lock bags are running low, replenish request is in.", timestamp: fmt(1, 14, 10) },
-  ],
+  // Everything below is operational data — reset to empty.
+  categories: [],
+  locators: [],
+  inventory: [],
+  transactions: [],
+  loginLogs: [],
+  messages: [],
+  adjustments: [],
 
   session: null,
   authMode: "login",
   view: "dashboard",
   toast: null,
   txTab: "stock",
-  txPage: 1,
   lookupQ: "",
   lookupLoc: "all",
   lookupCat: "all",
-  lookupPage: 1,
   stockType: "IN",
   bulk: false,
   rows: [{ sku: "", description: "", qty: "", notes: "" }],
+  barcodeManual: "",
   teamPanelOpen: false,
   chatWith: null,
   editItem: null,
   confirm: null,
   _notifiedRetention: false,
 };
-
-const PAGE_SIZE = 8;
 
 function showToast(msg, tone) {
   state.toast = { msg, tone };
@@ -352,7 +357,8 @@ function roleColor(role) {
 }
 function initials(name){ return name.split(" ").map(n=>n[0]).join(""); }
 function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-function isAdmin(){ return state.session && state.session.role === "Admin"; }
+function isAdmin(){ return !!state.session && state.session.role === "Admin"; }
+function canAdjust(){ return !!state.session && (state.session.role === "Admin" || state.session.role === "Stock Clerk"); }
 
 /* ---------------------------------------------------------
    MESSAGE RETENTION (auto-purge after 3 months / ~90 days)
@@ -410,6 +416,11 @@ function render() {
   document.getElementById("stripe").style.display = state.session ? "none" : "block";
   app.innerHTML = state.session ? renderShell() : renderAuth();
   attachHandlers();
+  syncScannerMode();
+  if (state.session) {
+    if (state.view === "lookup") mountLookupVirtualList();
+    if (state.view === "transactions" && state.txTab === "stock") mountTxVirtualList();
+  }
 }
 
 /* ---------------------------------------------------------
@@ -481,10 +492,12 @@ function renderSignupForm() {
 --------------------------------------------------------- */
 function renderShell() {
   const admin = isAdmin();
+  const adjustAccess = canAdjust();
   const navItems = [
     { key: "dashboard", label: "Dashboard", icon: ICONS.grid },
     { key: "lookup", label: "Inventory Lookup", icon: ICONS.search },
     { key: "stock", label: "Stock In / Out", icon: ICONS.boxes },
+    ...(adjustAccess ? [{ key: "adjustments", label: "Adjustments", icon: ICONS.adjust }] : []),
     ...(admin ? [{ key: "locators", label: "Locators & Categories", icon: ICONS.map }] : []),
     ...(admin ? [{ key: "users", label: "Users", icon: ICONS.users }] : []),
     ...(admin ? [{ key: "transactions", label: "Transaction Log", icon: ICONS.scroll }] : []),
@@ -543,6 +556,7 @@ function renderView() {
     case "dashboard": return renderDashboard();
     case "lookup": return renderLookup();
     case "stock": return renderStock();
+    case "adjustments": return canAdjust() ? renderAdjustments() : renderDashboard();
     case "locators": return isAdmin() ? renderLocators() : renderDashboard();
     case "users": return isAdmin() ? renderUsers() : renderDashboard();
     case "transactions": return isAdmin() ? renderTransactions() : renderDashboard();
@@ -713,7 +727,8 @@ function renderDashboard() {
           <table>
             <thead><tr><th>Locator</th><th>Zone</th><th>SKUs</th><th>Total value</th></tr></thead>
             <tbody>
-              ${perLocator.map(l => `
+              ${perLocator.length===0?`<tr><td colspan="4" style="text-align:center;color:var(--dim);padding:20px;">No locators yet — add one under Locators & Categories.</td></tr>`:
+              perLocator.map(l => `
                 <tr>
                   <td><span class="tag">${esc(l.code)}</span></td>
                   <td style="color:#B4BAC5;">${esc(l.zone)}</td>
@@ -727,7 +742,8 @@ function renderDashboard() {
       <div class="card">
         <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Value by category</h2>
         <div style="display:flex;flex-direction:column;gap:10px;">
-          ${perCategory.map(c => `
+          ${perCategory.length===0?`<p style="font-size:12px;color:var(--muted);">No categories yet — add one under Locators & Categories.</p>`:
+          perCategory.map(c => `
             <div>
               <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;gap:8px;">
                 <span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.category)}</span>
@@ -758,7 +774,12 @@ function statCard(icon, label, value, sub, tone) {
 
 /* ---------------------------------------------------------
    INVENTORY LOOKUP (search / filter / import / export / admin edit)
+   Rendered as a virtualized (windowed) list: only rows near the
+   viewport are ever in the DOM, however large the inventory gets.
 --------------------------------------------------------- */
+const LOOKUP_COLS = "130px 1fr 160px 120px 90px 110px 120px";
+const LOOKUP_COLS_ADMIN = LOOKUP_COLS + " 90px";
+
 function filteredInventory() {
   const q = state.lookupQ.toLowerCase();
   return state.inventory.filter(i => {
@@ -808,61 +829,95 @@ function renderLookup() {
 
 function renderLookupBody() {
   const admin = isAdmin();
-  const all = filteredInventory();
-  const totalPages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
-  if (state.lookupPage > totalPages) state.lookupPage = totalPages;
-  const start = (state.lookupPage - 1) * PAGE_SIZE;
-  const pageItems = all.slice(start, start + PAGE_SIZE);
-
+  const cols = admin ? LOOKUP_COLS_ADMIN : LOOKUP_COLS;
+  const minW = admin ? 1000 : 910;
   return `
-    <div class="card" style="padding:0;overflow:hidden;">
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>SKU</th><th>Description</th><th>Category</th><th>Locator</th><th>On hand</th><th>Unit value</th><th>Status</th>
-            ${admin ? `<th style="text-align:right;">Actions</th>` : ""}
-          </tr></thead>
-          <tbody>
-            ${pageItems.length === 0 ? `<tr><td colspan="${admin?8:7}" style="text-align:center;color:var(--dim);padding:28px;">No SKUs match this search.</td></tr>` :
-              pageItems.map(i => {
-                const low = i.qty <= i.reorder;
-                return `<tr>
-                  <td class="mono" style="font-size:12px;">${esc(i.sku)}</td>
-                  <td>${esc(i.description)}</td>
-                  <td><span class="tag tag-violet">${esc(i.category||'Uncategorized')}</span></td>
-                  <td><span class="tag">${esc(i.locator)}</span></td>
-                  <td>${i.qty}</td>
-                  <td class="mono" style="font-size:12px;">₱${i.unitValue.toLocaleString()}</td>
-                  <td>${low ? `<span class="tag tag-danger">Low stock</span>` : `<span class="tag tag-ok">In stock</span>`}</td>
-                  ${admin ? `<td style="text-align:right;white-space:nowrap;">
-                    <button class="icon-btn edit" data-action="edit-item" data-sku="${esc(i.sku)}" title="Edit">${ICONS.pencil}</button>
-                    <button class="icon-btn" data-action="delete-item" data-sku="${esc(i.sku)}" title="Delete">${ICONS.trash}</button>
-                  </td>` : ""}
-                </tr>`;
-              }).join("")}
-          </tbody>
-        </table>
+    <div class="vtable">
+      <div class="vtable-hscroll">
+        <div style="min-width:${minW}px;">
+          <div class="vtable-head" style="grid-template-columns:${cols};">
+            <div>SKU</div><div>Description</div><div>Category</div><div>Locator</div><div>On hand</div><div>Unit value</div><div>Status</div>
+            ${admin ? `<div style="justify-content:flex-end;">Actions</div>` : ""}
+          </div>
+          <div class="vtable-viewport" id="lookup-viewport" style="height:440px;">
+            <div class="vtable-spacer"><div class="vtable-rows"></div></div>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="pager">
-      <span>${all.length} SKU${all.length!==1?'s':''} · page ${state.lookupPage} of ${totalPages}</span>
-      <button class="btn btn-ghost btn-sm" data-action="lookup-prev" ${state.lookupPage<=1?'disabled':''}>‹ Prev</button>
-      <button class="btn btn-ghost btn-sm" data-action="lookup-next" ${state.lookupPage>=totalPages?'disabled':''}>Next ›</button>
-    </div>
+    <div class="pager"><span id="lookup-count">0 SKUs</span></div>
   `;
+}
+
+function renderInventoryRow(i, admin) {
+  const cols = admin ? LOOKUP_COLS_ADMIN : LOOKUP_COLS;
+  const low = i.qty <= i.reorder;
+  return `<div class="vrow" style="grid-template-columns:${cols};">
+    <div class="mono" style="font-size:12px;">${esc(i.sku)}</div>
+    <div>${esc(i.description)}</div>
+    <div><span class="tag tag-violet">${esc(i.category||'Uncategorized')}</span></div>
+    <div><span class="tag">${esc(i.locator)}</span></div>
+    <div>${i.qty}</div>
+    <div class="mono" style="font-size:12px;">₱${i.unitValue.toLocaleString()}</div>
+    <div>${low ? `<span class="tag tag-danger">Low stock</span>` : `<span class="tag tag-ok">In stock</span>`}</div>
+    ${admin ? `<div style="justify-content:flex-end;gap:2px;">
+      <button class="icon-btn edit" data-action="edit-item" data-sku="${esc(i.sku)}" title="Edit">${ICONS.pencil}</button>
+      <button class="icon-btn" data-action="delete-item" data-sku="${esc(i.sku)}" title="Delete">${ICONS.trash}</button>
+    </div>` : ""}
+  </div>`;
 }
 
 function updateLookupResults() {
   const el = document.getElementById("lookup-body");
-  if (el) el.innerHTML = renderLookupBody();
+  if (!el) return;
+  el.innerHTML = renderLookupBody();
+  mountLookupVirtualList();
+}
+function mountLookupVirtualList() {
+  const admin = isAdmin();
+  const items = filteredInventory();
+  mountVirtualList("lookup-viewport", items, 42, (i) => renderInventoryRow(i, admin), "No SKUs match this search.");
+  const countEl = document.getElementById("lookup-count");
+  if (countEl) countEl.textContent = `${items.length} SKU${items.length!==1?'s':''}`;
+}
+
+/* Generic windowed-list mounter: renders only rows near the
+   scrolled viewport (plus a small buffer), reused by Inventory
+   Lookup and the Transaction Log's stock-movements list. */
+function mountVirtualList(viewportId, items, rowHeight, renderRowFn, emptyText) {
+  const viewport = document.getElementById(viewportId);
+  if (!viewport) return;
+  const spacer = viewport.querySelector(".vtable-spacer");
+  const rowsEl = viewport.querySelector(".vtable-rows");
+  const total = items.length;
+  spacer.style.height = Math.max(total * rowHeight, 1) + "px";
+  function paint() {
+    if (total === 0) {
+      rowsEl.style.transform = "translateY(0px)";
+      rowsEl.innerHTML = `<div class="vtable-empty">${emptyText}</div>`;
+      return;
+    }
+    const scrollTop = viewport.scrollTop;
+    const viewH = viewport.clientHeight || rowHeight * 10;
+    const buffer = 6;
+    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - buffer);
+    const count = Math.ceil(viewH / rowHeight) + buffer * 2;
+    const end = Math.min(total, start + count);
+    rowsEl.style.transform = `translateY(${start * rowHeight}px)`;
+    let html = "";
+    for (let i = start; i < end; i++) html += renderRowFn(items[i], i);
+    rowsEl.innerHTML = html;
+  }
+  paint();
+  viewport.onscroll = () => window.requestAnimationFrame(paint);
 }
 
 /* CSV / PDF helpers */
 function toCSV(items) {
-  const header = ["SKU","Description","Category","Locator","QTY","UnitValue","Reorder","Notes"];
+  const header = ["SKU","Description","Category","Locator","QTY","UnitValue","Reorder"];
   const lines = [header.join(",")];
   items.forEach(i => {
-    lines.push([i.sku, `"${(i.description||"").replace(/"/g,'""')}"`, i.category||"", i.locator||"", i.qty, i.unitValue, i.reorder, ""].join(","));
+    lines.push([i.sku, `"${(i.description||"").replace(/"/g,'""')}"`, i.category||"", i.locator||"", i.qty, i.unitValue, i.reorder].join(","));
   });
   return lines.join("\n");
 }
@@ -956,7 +1011,8 @@ function importCSVFile(file) {
   reader.readAsText(file);
 }
 
-/* Admin: add / edit / delete / reset */
+/* Admin: add / edit / delete / reset (all qty-changing edits are
+   mirrored into state.adjustments for the audit trail). */
 function openEditItem(sku) {
   state.editItem = sku ? { ...state.inventory.find(i => i.sku === sku) } : { sku:"", description:"", category: state.categories[0]||"", locator: state.locators[0]?.code||"", qty:0, unitValue:0, reorder:0, _isNew:true };
   render();
@@ -970,7 +1026,7 @@ function renderEditItemModal() {
         <h3>${isNew ? "Add inventory item" : "Edit item"}</h3>
         <p class="hint">${isNew ? "Create a new SKU record." : `Editing ${esc(it.sku)}`}</p>
         <div style="display:flex;flex-direction:column;gap:12px;">
-          <label class="field"><span class="lbl">SKU</span><input id="ei-sku" value="${esc(it.sku)}" ${isNew?'':'disabled'} placeholder="SKU-1009" /></label>
+          <label class="field"><span class="lbl">SKU</span><input id="ei-sku" value="${esc(it.sku)}" ${isNew?'':'disabled'} placeholder="10112345" /></label>
           <label class="field"><span class="lbl">Description</span><input id="ei-desc" value="${esc(it.description)}" /></label>
           <label class="field"><span class="lbl">Category</span>
             <select id="ei-cat">${state.categories.map(c => `<option value="${esc(c)}" ${it.category===c?'selected':''}>${esc(c)}</option>`).join("")}</select>
@@ -983,6 +1039,7 @@ function renderEditItemModal() {
             <label class="field"><span class="lbl">Unit value (₱)</span><input id="ei-value" type="number" min="0" step="0.01" value="${it.unitValue}" /></label>
             <label class="field"><span class="lbl">Reorder level</span><input id="ei-reorder" type="number" min="0" value="${it.reorder}" /></label>
           </div>
+          ${!isNew ? `<p style="font-size:11px;color:var(--dim);margin:0;">Changing the quantity here logs a "Physical Count Correction" entry in the audit trail automatically.</p>` : ""}
         </div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
           <button class="btn btn-ghost" data-action="close-edit-item">Cancel</button>
@@ -1009,7 +1066,17 @@ function saveEditItem() {
     state.inventory.push(payload);
     showToast("Item added", "ok");
   } else {
-    Object.assign(state.inventory.find(i => i.sku === it.sku), payload);
+    const existing = state.inventory.find(i => i.sku === it.sku);
+    const qtyBefore = existing.qty;
+    Object.assign(existing, payload);
+    if (payload.qty !== qtyBefore) {
+      state.adjustments.unshift({
+        id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
+        sku: existing.sku, description: existing.description, reason: "Physical Count Correction",
+        delta: payload.qty - qtyBefore, qtyBefore, qtyAfter: payload.qty,
+        notes: "Quantity corrected via inventory item edit", user: state.session.name, timestamp: fmt(0),
+      });
+    }
     showToast("Item updated", "ok");
   }
   state.editItem = null;
@@ -1038,7 +1105,17 @@ function runConfirmedAction() {
   const c = state.confirm;
   if (!c) return;
   if (c.type === "reset-qty") {
-    state.inventory.forEach(i => i.qty = 0);
+    state.inventory.forEach(i => {
+      if (i.qty !== 0) {
+        state.adjustments.unshift({
+          id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
+          sku: i.sku, description: i.description, reason: "Physical Count Correction",
+          delta: -i.qty, qtyBefore: i.qty, qtyAfter: 0,
+          notes: "Bulk reset — all quantities set to 0 via Inventory Lookup", user: state.session.name, timestamp: fmt(0),
+        });
+      }
+      i.qty = 0;
+    });
     showToast("All quantities reset to 0", "ok");
   } else if (c.type === "delete-item") {
     state.inventory = state.inventory.filter(i => i.sku !== c.payload);
@@ -1058,17 +1135,134 @@ function runConfirmedAction() {
 }
 
 /* ---------------------------------------------------------
+   BARCODE SCANNER + MANUAL SKU ENTRY — Stock In/Out ONLY
+   -----------------------------------------------------------
+   Physical scanners emulate a keyboard, firing digit keydown
+   events in rapid succession (well under SCAN_GAP_MS apart)
+   followed by Enter. We buffer digits globally while on the
+   Stock page, validate the 14-digit burst on Enter, then parse:
+     digits 1–5   → prefix (category)
+     digits 6–13  → sku (the only value stored in inventory)
+     digit 14     → suffix / check digit
+   Manual entry (typed 14-digit code OR 8-digit SKU) goes through
+   the same parser via the on-page input box. Listeners — including
+   the Ctrl/Cmd+F block — attach only while state.view === "stock"
+   and detach automatically the moment the user navigates away
+   (see syncScannerMode(), called at the end of every render()).
+--------------------------------------------------------- */
+let _scannerActive = false;
+let _scanBuffer = "";
+let _scanLastTime = 0;
+const SCAN_GAP_MS = 30;
+
+function scannerKeydownHandler(e) {
+  const isFindShortcut = (e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F");
+  if (isFindShortcut) { e.preventDefault(); e.stopPropagation(); return; }
+  if (e.target && e.target.id === "barcode-manual-input") return; // manual box handles its own Enter
+
+  if (e.key === "Enter") {
+    if (/^\d{14}$/.test(_scanBuffer)) {
+      e.preventDefault();
+      handleBarcodeInput(_scanBuffer, "scanner");
+    }
+    _scanBuffer = ""; _scanLastTime = 0;
+    return;
+  }
+  if (/^[0-9]$/.test(e.key)) {
+    const now = performance.now();
+    if (_scanBuffer.length > 0 && (now - _scanLastTime) > SCAN_GAP_MS) _scanBuffer = "";
+    _scanBuffer += e.key;
+    if (_scanBuffer.length > 14) _scanBuffer = _scanBuffer.slice(-14);
+    _scanLastTime = now;
+  } else if (e.key.length === 1) {
+    _scanBuffer = ""; // any other printable keystroke breaks a scan burst
+  }
+}
+function activateScannerMode() {
+  if (_scannerActive) return;
+  _scannerActive = true;
+  _scanBuffer = ""; _scanLastTime = 0;
+  document.addEventListener("keydown", scannerKeydownHandler, true);
+}
+function deactivateScannerMode() {
+  if (!_scannerActive) return;
+  _scannerActive = false;
+  document.removeEventListener("keydown", scannerKeydownHandler, true);
+  _scanBuffer = ""; _scanLastTime = 0;
+}
+function syncScannerMode() {
+  if (state.session && state.view === "stock") activateScannerMode();
+  else deactivateScannerMode();
+}
+
+function handleBarcodeInput(rawInput, inputMethod) {
+  const digits = String(rawInput).replace(/\D/g, "");
+  let sku, prefix = null, suffix = null;
+  if (digits.length === 14) {
+    prefix = digits.slice(0, 5);
+    sku = digits.slice(5, 13);
+    suffix = digits.slice(13, 14);
+  } else if (digits.length === 8) {
+    sku = digits;
+  } else {
+    showToast(`Unrecognized code length (${digits.length} digits) — expected 8 or 14`, "danger");
+    return null;
+  }
+  const payload = {
+    sku, prefix, suffix,
+    fullBarcodeFormatted: prefix ? `${prefix}-${sku}-${suffix}` : sku,
+    rawInput: digits,
+    inputMethod,
+    action: state.stockType === "IN" ? "stock_in" : "stock_out",
+  };
+  applyBarcodePayload(payload);
+  return payload;
+}
+
+function applyBarcodePayload(payload) {
+  const item = state.inventory.find(i => i.sku === payload.sku);
+  let idx = state.rows.findIndex(r => !r.sku);
+  if (idx === -1) {
+    if (state.bulk) { state.rows.push({ sku: "", description: "", qty: "", notes: "" }); idx = state.rows.length - 1; }
+    else idx = 0;
+  }
+  state.rows[idx] = { ...state.rows[idx], sku: payload.sku, description: item ? item.description : state.rows[idx].description, _barcodeMeta: payload };
+  showToast(
+    item ? `${payload.inputMethod === "scanner" ? "Scanned" : "Entered"} ${payload.sku} — ${item.description}` : `SKU ${payload.sku} not found in inventory — row filled for review`,
+    item ? "ok" : "danger"
+  );
+  render();
+  requestAnimationFrame(() => {
+    const qtyInput = document.querySelector(`.row-qty[data-idx="${idx}"]`);
+    if (qtyInput) qtyInput.focus();
+  });
+}
+
+/* ---------------------------------------------------------
    STOCK IN / OUT
 --------------------------------------------------------- */
 function renderStock() {
   const type = state.stockType;
   const bulk = state.bulk;
   const skuOptions = state.inventory.map(i => `<option value="${i.sku}">`).join("");
+  const manualVal = state.barcodeManual || "";
 
   return `
     <div style="margin-bottom:20px;">
       <h1 class="page-title">Stock In / Out</h1>
       <p class="page-sub">Log receipts from suppliers or releases to the selling area. Switch to bulk mode for multiple SKUs at once.</p>
+    </div>
+
+    <div class="barcode-banner">
+      <span style="color:var(--accent);flex-shrink:0;margin-top:1px;">${ICONS.barcode}</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;">Barcode scanner is active on this page</div>
+        <div style="font-size:11.5px;color:var(--muted);">Scan a 14-digit barcode anywhere on this screen, or type it (or the 8-digit SKU) below. Browser Find (Ctrl/Cmd+F) is disabled here while scanning is active, and everything on this page turns off again the moment you leave.</div>
+        <div class="barcode-row">
+          <input id="barcode-manual-input" placeholder="Scan, or type 14-digit barcode / 8-digit SKU…" value="${esc(manualVal)}" />
+          <button class="btn btn-primary btn-sm" data-action="submit-manual-barcode">${ICONS.plus} Add</button>
+        </div>
+      </div>
     </div>
 
     <div class="toolbar" style="margin-bottom:16px;">
@@ -1102,12 +1296,13 @@ function renderStock() {
     <div class="card">
       <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Recent entries</h2>
       <div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;">
-        ${state.transactions.slice(0,8).map(t => `
+        ${state.transactions.length === 0 ? `<p style="font-size:12px;color:var(--muted);">No stock movements logged yet.</p>` :
+        state.transactions.slice(0,8).map(t => `
           <div style="display:flex;align-items:center;justify-content:space-between;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:8px 12px;font-size:13px;gap:8px;">
             <div style="display:flex;align-items:center;gap:10px;min-width:0;">
               <span style="color:${t.type==='IN'?'var(--ok)':'var(--accent)'};flex-shrink:0;">${t.type==='IN'?ICONS.down:ICONS.up}</span>
               <div style="min-width:0;">
-                <div class="mono" style="font-size:12px;">${esc(t.sku)} · ${t.qty} pcs</div>
+                <div class="mono" style="font-size:12px;">${esc(t.sku)} · ${t.qty} pcs${t.inputMethod==='scanner'?' <span style="color:var(--ok);">(scanned)</span>':''}</div>
                 <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.notes)} — ${esc(t.user)}</div>
               </div>
             </div>
@@ -1120,7 +1315,7 @@ function renderStock() {
 function renderStockRow(row, idx, bulk) {
   return `
     <div class="row-grid ${bulk?'':'single'}" data-row="${idx}">
-      <input list="sku-options" class="row-sku" placeholder="SKU-1001" value="${esc(row.sku)}" data-idx="${idx}" data-field="sku" />
+      <input list="sku-options" class="row-sku" placeholder="10112345" value="${esc(row.sku)}" data-idx="${idx}" data-field="sku" />
       <input class="row-desc" placeholder="Auto-filled from SKU" value="${esc(row.description)}" data-idx="${idx}" data-field="description" style="opacity:.85;" />
       <input type="number" min="0" class="row-qty" placeholder="0" value="${esc(row.qty)}" data-idx="${idx}" data-field="qty" />
       <input class="row-notes" placeholder="Optional note" value="${esc(row.notes)}" data-idx="${idx}" data-field="notes" />
@@ -1146,11 +1341,17 @@ function submitStock() {
       hadError = true; return;
     }
     item.qty = type === "IN" ? item.qty + qty : item.qty - qty;
+    const meta = r._barcodeMeta || {};
     newTx.push({
       id: "T-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
       type, sku: r.sku, description: item.description, qty,
       locator: item.locator, notes: r.notes || "—", user: state.session.name,
       value: qty * item.unitValue, timestamp: fmt(0),
+      inputMethod: meta.inputMethod || "manual-form",
+      prefix: meta.prefix ?? null,
+      suffix: meta.suffix ?? null,
+      fullBarcodeFormatted: meta.fullBarcodeFormatted ?? null,
+      rawInput: meta.rawInput ?? null,
     });
   });
 
@@ -1160,7 +1361,89 @@ function submitStock() {
   }
   state.transactions.unshift(...newTx);
   state.rows = [{ sku: "", description: "", qty: "", notes: "" }];
+  state.barcodeManual = "";
   showToast(`${newTx.length} stock ${type==='IN'?'in':'out'} entr${newTx.length>1?'ies':'y'} recorded`, "ok");
+}
+
+/* ---------------------------------------------------------
+   STOCK ADJUSTMENTS (write-offs, shrinkage, manual overrides)
+   Every entry records who / when / why / how much, and updates
+   inventory qty immediately. Available to Admin + Stock Clerk.
+--------------------------------------------------------- */
+function renderAdjustments() {
+  const f = state._adjForm || { sku:"", reason: ADJUSTMENT_REASONS[0], delta:"", notes:"" };
+  const admin = isAdmin();
+  const visible = admin ? state.adjustments : state.adjustments.filter(a => a.user === state.session.name);
+  const skuOptions = state.inventory.map(i => `<option value="${i.sku}">`).join("");
+
+  return `
+    <div style="margin-bottom:20px;">
+      <h1 class="page-title">Stock adjustments</h1>
+      <p class="page-sub">Log write-offs, shrinkage, or physical-count corrections outside normal Stock In/Out. Every change records who, when, why, and how much.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="grid grid-3">
+        <label class="field"><span class="lbl">SKU</span><input id="adj-sku" list="sku-options-adj" value="${esc(f.sku)}" placeholder="10112345" /></label>
+        <label class="field"><span class="lbl">Reason code</span>
+          <select id="adj-reason">${ADJUSTMENT_REASONS.map(r=>`<option value="${esc(r)}" ${f.reason===r?'selected':''}>${esc(r)}</option>`).join("")}</select>
+        </label>
+        <label class="field"><span class="lbl">Quantity change (+/-)</span><input id="adj-delta" type="number" value="${esc(f.delta)}" placeholder="e.g. -5 or 12" /></label>
+      </div>
+      <label class="field" style="margin-top:12px;"><span class="lbl">Notes (required for the audit trail)</span>
+        <textarea id="adj-notes" rows="2" placeholder="What happened, and how was it discovered?">${esc(f.notes)}</textarea>
+      </label>
+      <datalist id="sku-options-adj">${skuOptions}</datalist>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+        <button class="btn btn-primary" data-action="submit-adjustment">${ICONS.adjust} Record adjustment</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">${admin ? "All adjustments" : "Your recent adjustments"}</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>SKU</th><th>Reason</th><th>Qty Δ</th><th>Before → After</th><th>By</th><th>Notes</th><th>Timestamp</th></tr></thead>
+          <tbody>
+            ${visible.length === 0 ? `<tr><td colspan="7" style="text-align:center;color:var(--dim);padding:24px;">No adjustments logged yet.</td></tr>` :
+              visible.slice(0,100).map(a => `
+              <tr>
+                <td class="mono" style="font-size:12px;">${esc(a.sku)}</td>
+                <td><span class="tag tag-violet">${esc(a.reason)}</span></td>
+                <td class="mono" style="color:${a.delta<0?'var(--danger)':'var(--ok)'};">${a.delta>0?'+':''}${a.delta}</td>
+                <td class="mono" style="font-size:12px;">${a.qtyBefore} → ${a.qtyAfter}</td>
+                <td style="color:#B4BAC5;">${esc(a.user)}</td>
+                <td style="color:var(--muted);font-size:12px;">${esc(a.notes)}</td>
+                <td style="color:var(--dim);font-size:11px;">${a.timestamp}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+function submitAdjustment() {
+  const sku = document.getElementById("adj-sku").value.trim();
+  const reason = document.getElementById("adj-reason").value;
+  const delta = parseInt(document.getElementById("adj-delta").value, 10);
+  const notes = document.getElementById("adj-notes").value.trim();
+  if (!sku) return showToast("SKU is required", "danger");
+  const item = state.inventory.find(i => i.sku === sku);
+  if (!item) return showToast(`SKU ${sku} not found in inventory`, "danger");
+  if (!delta) return showToast("Enter a non-zero quantity change", "danger");
+  if (!notes) return showToast("A note is required for the audit trail", "danger");
+
+  const qtyBefore = item.qty;
+  const qtyAfter = Math.max(0, qtyBefore + delta);
+  item.qty = qtyAfter;
+  state.adjustments.unshift({
+    id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
+    sku, description: item.description, reason, delta, qtyBefore, qtyAfter,
+    notes, user: state.session.name, timestamp: fmt(0),
+  });
+  state._adjForm = { sku:"", reason: ADJUSTMENT_REASONS[0], delta:"", notes:"" };
+  showToast(`Adjustment recorded — ${item.sku} now at ${qtyAfter}`, "ok");
+  render();
 }
 
 /* ---------------------------------------------------------
@@ -1185,7 +1468,8 @@ function renderLocators() {
       </div>
     </div>
     <div class="grid grid-3" style="margin-bottom:16px;">
-      ${state.locators.map(l => `
+      ${state.locators.length === 0 ? `<p style="font-size:12.5px;color:var(--muted);">No locators yet — add your first one above.</p>` :
+      state.locators.map(l => `
         <div class="card" style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
           <div style="min-width:0;">
             <span class="tag">${esc(l.code)}</span>
@@ -1203,7 +1487,8 @@ function renderLocators() {
         <button class="btn btn-primary btn-sm" data-action="add-category">${ICONS.plus} Add category</button>
       </div>
       <div class="toolbar">
-        ${state.categories.map(c => `
+        ${state.categories.length === 0 ? `<p style="font-size:12.5px;color:var(--muted);margin:0;">No categories yet — add your first one above.</p>` :
+        state.categories.map(c => `
           <span class="chip">${ICONS.tag} ${esc(c)}
             <button class="icon-btn" style="padding:0;color:var(--dim);" data-action="remove-category" data-cat="${esc(c)}">${ICONS.x}</button>
           </span>`).join("")}
@@ -1248,57 +1533,67 @@ function renderUsers() {
 
 /* ---------------------------------------------------------
    TRANSACTION LOG
+   "Stock movements" is virtualized (see mountTxVirtualList) so
+   it stays fast no matter how many entries accumulate.
 --------------------------------------------------------- */
+const TX_COLS = "90px 70px 130px 70px 120px 110px 130px 1fr 150px";
+
 function renderTransactions() {
   const tab = state.txTab;
-  const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(state.transactions.length / pageSize));
-  if (state.txPage > totalPages) state.txPage = totalPages;
-  const start = (state.txPage - 1) * pageSize;
-  const pageTx = state.transactions.slice(start, start + pageSize);
-
   return `
     <div style="margin-bottom:20px;">
       <h1 class="page-title">Transaction log</h1>
-      <p class="page-sub">Full audit trail of stock movement and account activity, across every user.</p>
+      <p class="page-sub">Full audit trail of stock movement, manual adjustments, and account activity, across every user.</p>
     </div>
     <div class="stockin-tabs" style="margin-bottom:16px;">
       <button class="stockin-tab ${tab==='stock'?'active-in':''}" data-action="set-tx-tab" data-tab="stock">Stock movements</button>
+      <button class="stockin-tab ${tab==='adjustments'?'active-in':''}" data-action="set-tx-tab" data-tab="adjustments">Adjustments</button>
       <button class="stockin-tab ${tab==='access'?'active-in':''}" data-action="set-tx-tab" data-tab="access">Sign-in / sign-out</button>
     </div>
     ${tab === "stock" ? `
+      <div class="vtable">
+        <div class="vtable-hscroll">
+          <div style="min-width:1180px;">
+            <div class="vtable-head" style="grid-template-columns:${TX_COLS};">
+              <div>Ref</div><div>Type</div><div>SKU</div><div>Qty</div><div>Locator</div><div>Value</div><div>By</div><div>Notes</div><div>Timestamp</div>
+            </div>
+            <div class="vtable-viewport" id="tx-viewport" style="height:460px;">
+              <div class="vtable-spacer"><div class="vtable-rows"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pager"><span>${state.transactions.length} entries</span></div>
+    ` : tab === "adjustments" ? `
       <div class="card" style="padding:0;overflow:hidden;">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Ref</th><th>Type</th><th>SKU</th><th>Qty</th><th>Locator</th><th>Value</th><th>By</th><th>Notes</th><th>Timestamp</th></tr></thead>
+            <thead><tr><th>Ref</th><th>SKU</th><th>Reason</th><th>Qty Δ</th><th>Before → After</th><th>By</th><th>Notes</th><th>Timestamp</th></tr></thead>
             <tbody>
-              ${pageTx.map(t => `
+              ${state.adjustments.length === 0 ? `<tr><td colspan="8" style="text-align:center;color:var(--dim);padding:24px;">No adjustments logged yet.</td></tr>` :
+                state.adjustments.map(a => `
                 <tr>
-                  <td class="mono" style="font-size:11px;color:var(--dim);">${t.id}</td>
-                  <td>${t.type==='IN'?`<span class="tag tag-ok">IN</span>`:`<span class="tag tag-accent">OUT</span>`}</td>
-                  <td class="mono" style="font-size:12px;">${esc(t.sku)}</td>
-                  <td>${t.qty}</td>
-                  <td><span class="tag">${esc(t.locator)}</span></td>
-                  <td class="mono" style="font-size:12px;">₱${t.value.toLocaleString()}</td>
-                  <td style="color:#B4BAC5;">${esc(t.user)}</td>
-                  <td style="font-size:12px;color:var(--muted);">${esc(t.notes)}</td>
-                  <td style="font-size:11px;color:var(--dim);">${t.timestamp}</td>
+                  <td class="mono" style="font-size:11px;color:var(--dim);">${a.id}</td>
+                  <td class="mono" style="font-size:12px;">${esc(a.sku)}</td>
+                  <td><span class="tag tag-violet">${esc(a.reason)}</span></td>
+                  <td class="mono" style="color:${a.delta<0?'var(--danger)':'var(--ok)'};">${a.delta>0?'+':''}${a.delta}</td>
+                  <td class="mono" style="font-size:12px;">${a.qtyBefore} → ${a.qtyAfter}</td>
+                  <td style="color:#B4BAC5;">${esc(a.user)}</td>
+                  <td style="color:var(--muted);font-size:12px;">${esc(a.notes)}</td>
+                  <td style="color:var(--dim);font-size:11px;">${a.timestamp}</td>
                 </tr>`).join("")}
             </tbody>
           </table>
         </div>
       </div>
-      <div class="pager">
-        <span>${state.transactions.length} entries · page ${state.txPage} of ${totalPages}</span>
-        <button class="btn btn-ghost btn-sm" data-action="tx-prev" ${state.txPage<=1?'disabled':''}>‹ Prev</button>
-        <button class="btn btn-ghost btn-sm" data-action="tx-next" ${state.txPage>=totalPages?'disabled':''}>Next ›</button>
-      </div>` : `
+    ` : `
       <div class="card" style="padding:0;overflow:hidden;">
         <div class="table-wrap">
           <table>
             <thead><tr><th>User</th><th>Role</th><th>Action</th><th>Timestamp</th></tr></thead>
             <tbody>
-              ${state.loginLogs.map(l => `
+              ${state.loginLogs.length === 0 ? `<tr><td colspan="4" style="text-align:center;color:var(--dim);padding:24px;">No activity yet.</td></tr>` :
+              state.loginLogs.map(l => `
                 <tr>
                   <td>${esc(l.user)}</td>
                   <td style="color:var(--muted);">${esc(l.role)}</td>
@@ -1312,6 +1607,23 @@ function renderTransactions() {
         </div>
       </div>`}
   `;
+}
+function renderTxRow(t) {
+  const typeTag = t.type==='IN' ? `<span class="tag tag-ok">IN</span>` : t.type==='OUT' ? `<span class="tag tag-accent">OUT</span>` : `<span class="tag tag-violet">${esc(t.type||'ADJ')}</span>`;
+  return `<div class="vrow" style="grid-template-columns:${TX_COLS};">
+    <div class="mono" style="font-size:11px;color:var(--dim);">${esc(t.id)}</div>
+    <div>${typeTag}</div>
+    <div class="mono" style="font-size:12px;">${esc(t.sku)}</div>
+    <div>${t.qty}</div>
+    <div><span class="tag">${esc(t.locator)}</span></div>
+    <div class="mono" style="font-size:12px;">₱${(t.value||0).toLocaleString()}</div>
+    <div style="color:#B4BAC5;">${esc(t.user)}</div>
+    <div style="color:var(--muted);font-size:12px;">${esc(t.notes)}${t.inputMethod==='scanner'?' <span style="color:var(--ok);">(scanned)</span>':''}</div>
+    <div style="color:var(--dim);font-size:11px;">${t.timestamp}</div>
+  </div>`;
+}
+function mountTxVirtualList() {
+  mountVirtualList("tx-viewport", state.transactions, 42, (t) => renderTxRow(t), "No stock movements yet.");
 }
 
 /* ---------------------------------------------------------
@@ -1354,10 +1666,6 @@ function attachHandlers() {
   const app = document.getElementById("app");
 
   app.onclick = (e) => {
-    // clicking inside a modal shouldn't bubble to its backdrop close handler
-    if (e.target.closest("[data-stop]") && e.target.closest("[data-action='close-edit-item'],[data-action='confirm-no']") === null) {
-      // continue normal handling below (buttons inside still work)
-    }
     const el = e.target.closest("[data-action]");
     if (!el) return;
     // ignore backdrop click if the actual click landed on the modal box
@@ -1391,6 +1699,14 @@ function attachHandlers() {
       render();
     }
     else if (action === "submit-stock") submitStock();
+    else if (action === "submit-manual-barcode") {
+      const inputEl = document.getElementById("barcode-manual-input");
+      const val = inputEl ? inputEl.value.trim() : "";
+      if (!val) { showToast("Enter a barcode or SKU first", "danger"); return; }
+      const payload = handleBarcodeInput(val, "manual");
+      if (payload) state.barcodeManual = "";
+    }
+    else if (action === "submit-adjustment") submitAdjustment();
     else if (action === "add-locator") {
       const f = state._locForm || {};
       if (!f.code) { showToast("Locator code is required", "danger"); return; }
@@ -1427,11 +1743,7 @@ function attachHandlers() {
       showToast("Profile updated", "ok");
       render();
     }
-    else if (action === "set-tx-tab") { state.txTab = el.dataset.tab; state.txPage = 1; render(); }
-    else if (action === "tx-prev") { state.txPage = Math.max(1, state.txPage-1); render(); }
-    else if (action === "tx-next") { state.txPage += 1; render(); }
-    else if (action === "lookup-prev") { state.lookupPage = Math.max(1, state.lookupPage-1); updateLookupResults(); }
-    else if (action === "lookup-next") { state.lookupPage += 1; updateLookupResults(); }
+    else if (action === "set-tx-tab") { state.txTab = el.dataset.tab; render(); }
     else if (action === "toggle-team-panel") {
       state.teamPanelOpen = !state.teamPanelOpen;
       if (state.teamPanelOpen && !state._notifiedRetention) {
@@ -1456,7 +1768,7 @@ function attachHandlers() {
     else if (action === "open-add-item") openEditItem(null);
     else if (action === "edit-item") openEditItem(el.dataset.sku);
     else if (action === "delete-item") askConfirm("Delete this SKU?", `${el.dataset.sku} will be permanently removed from inventory.`, "delete-item", el.dataset.sku, "Delete");
-    else if (action === "reset-qty") askConfirm("Reset all quantities?", "Every SKU's on-hand quantity will be set to 0. This can't be undone from here.", "reset-qty", null, "Reset all");
+    else if (action === "reset-qty") askConfirm("Reset all quantities?", "Every SKU's on-hand quantity will be set to 0. Each change is logged to the audit trail as a Physical Count Correction.", "reset-qty", null, "Reset all");
     else if (action === "close-edit-item") { state.editItem = null; render(); }
     else if (action === "save-edit-item") saveEditItem();
     else if (action === "confirm-yes") runConfirmedAction();
@@ -1465,8 +1777,9 @@ function attachHandlers() {
 
   app.onchange = (e) => {
     if (e.target.id === "bulk-toggle") { state.bulk = e.target.checked; render(); }
-    else if (e.target.id === "lookup-loc") { state.lookupLoc = e.target.value; state.lookupPage = 1; updateLookupResults(); }
-    else if (e.target.id === "lookup-cat") { state.lookupCat = e.target.value; state.lookupPage = 1; updateLookupResults(); }
+    else if (e.target.id === "lookup-loc") { state.lookupLoc = e.target.value; updateLookupResults(); }
+    else if (e.target.id === "lookup-cat") { state.lookupCat = e.target.value; updateLookupResults(); }
+    else if (e.target.id === "adj-reason") { state._adjForm = state._adjForm || { sku:"", reason: ADJUSTMENT_REASONS[0], delta:"", notes:"" }; state._adjForm.reason = e.target.value; }
     else if (e.target.id === "import-file") {
       if (e.target.files && e.target.files[0]) importCSVFile(e.target.files[0]);
       e.target.value = "";
@@ -1478,12 +1791,19 @@ function attachHandlers() {
   };
 
   app.oninput = (e) => {
-    if (e.target.id === "lookup-q") { state.lookupQ = e.target.value; state.lookupPage = 1; updateLookupResults(); }
+    if (e.target.id === "lookup-q") { state.lookupQ = e.target.value; updateLookupResults(); }
+    else if (e.target.id === "barcode-manual-input") { state.barcodeManual = e.target.value; }
     else if (e.target.id === "loc-code" || e.target.id === "loc-zone" || e.target.id === "loc-desc") {
       state._locForm = state._locForm || { code:"", zone:"", description:"" };
       if (e.target.id === "loc-code") state._locForm.code = e.target.value;
       if (e.target.id === "loc-zone") state._locForm.zone = e.target.value;
       if (e.target.id === "loc-desc") state._locForm.description = e.target.value;
+    }
+    else if (e.target.id === "adj-sku" || e.target.id === "adj-delta" || e.target.id === "adj-notes") {
+      state._adjForm = state._adjForm || { sku:"", reason: ADJUSTMENT_REASONS[0], delta:"", notes:"" };
+      if (e.target.id === "adj-sku") state._adjForm.sku = e.target.value;
+      if (e.target.id === "adj-delta") state._adjForm.delta = e.target.value;
+      if (e.target.id === "adj-notes") state._adjForm.notes = e.target.value;
     }
     else if (e.target.classList.contains("row-sku") || e.target.classList.contains("row-desc") || e.target.classList.contains("row-qty") || e.target.classList.contains("row-notes")) {
       const idx = +e.target.dataset.idx;
@@ -1500,6 +1820,10 @@ function attachHandlers() {
     if (e.key === "Enter" && e.target.id === "chat-input") {
       e.preventDefault();
       document.querySelector('[data-action="send-message"]')?.click();
+    }
+    if (e.key === "Enter" && e.target.id === "barcode-manual-input") {
+      e.preventDefault();
+      document.querySelector('[data-action="submit-manual-barcode"]')?.click();
     }
   };
 }
