@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>DEPOT/OS — Warehouse Monitor</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23FF8A3D'/%3E%3Cpath d='m7.5 4.27 9 5.15' stroke='%231C1017' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z' stroke='%231C1017' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='m3.3 7 8.7 5 8.7-5' stroke='%231C1017' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M12 22V12' stroke='%231C1017' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -360,7 +361,7 @@ let state = {
    before — this layer just keeps `state` in sync with Postgres.
 --------------------------------------------------------- */
 function mapProfile(p) {
-  return { id: p.id, name: p.name, username: p.username, email: p.email, role: p.role, status: p.status, lastLogin: p.last_login };
+  return { id: p.id, name: p.name, username: p.username, email: p.email, role: p.role, status: p.status, lastLogin: p.last_login, approved: !!p.approved };
 }
 function mapTxRow(t) {
   return { id: t.id, type: t.type, sku: t.sku, description: t.description, qty: t.qty, locator: t.locator, notes: t.notes,
@@ -465,6 +466,11 @@ async function doLogin(usernameOrEmail, password) {
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
     if (error) { showToast(error.message, "danger"); return; }
     const { data: prof } = await sb.from("profiles").select("*").eq("id", data.user.id).single();
+    if (!prof.approved) {
+      await sb.auth.signOut();
+      showToast("Your account is waiting on admin approval. Try again once you've been approved.", "danger");
+      return;
+    }
     await sb.from("profiles").update({ status: "online", last_login: fmt(0) }).eq("id", data.user.id);
     await sb.from("login_logs").insert({ user_name: prof.name, role: prof.role, action: "Signed in", timestamp: fmt(0) });
     state.session = mapProfile({ ...prof, status: "online", last_login: fmt(0) });
@@ -485,12 +491,20 @@ async function doSignup(payload) {
     });
     if (error) { showToast(error.message, "danger"); return; }
     if (!data.session) {
-      showToast("Account created — check your email to confirm it, then sign in.", "ok");
+      showToast("Account created. Once an admin approves it, you'll be able to sign in.", "ok");
       state.authMode = "login";
       render();
       return;
     }
     const { data: prof } = await sb.from("profiles").select("*").eq("id", data.user.id).single();
+    if (!prof.approved) {
+      await sb.auth.signOut();
+      showToast("Account created — an admin needs to approve it before you can sign in.", "ok");
+      state.authMode = "login";
+      render();
+      return;
+    }
+    // Only reachable for the very first account, auto-approved as Admin.
     await sb.from("profiles").update({ status: "online", last_login: fmt(0) }).eq("id", data.user.id);
     await sb.from("login_logs").insert({ user_name: prof.name, role: prof.role, action: "Account created & signed in", timestamp: fmt(0) });
     state.session = mapProfile({ ...prof, status: "online", last_login: fmt(0) });
@@ -1711,15 +1725,16 @@ function renderLocators() {
    USERS ADMIN
 --------------------------------------------------------- */
 function renderUsers() {
+  const pending = state.users.filter(u => !u.approved).length;
   return `
     <div style="margin-bottom:20px;">
       <h1 class="page-title">Users</h1>
-      <p class="page-sub">See who's online right now, and manage access for every account.</p>
+      <p class="page-sub">See who's online right now, manage access, and approve new sign-ups.${pending ? ` <span style="color:var(--accent);">${pending} account${pending>1?'s':''} waiting on approval.</span>` : ""}</p>
     </div>
     <div class="card" style="padding:0;overflow:hidden;">
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Last login</th><th style="text-align:right;">Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Approval</th><th>Status</th><th>Last login</th><th style="text-align:right;">Actions</th></tr></thead>
           <tbody>
             ${state.users.map(u => `
               <tr>
@@ -1730,9 +1745,13 @@ function renderUsers() {
                     ${ROLES.map(r => `<option value="${r}" ${u.role===r?'selected':''}>${r}</option>`).join("")}
                   </select>
                 </td>
+                <td>${u.approved ? `<span class="tag tag-ok">${ICONS.check} Approved</span>` : `<span class="tag tag-accent">Pending</span>`}</td>
                 <td>${u.status==='online' ? `<span class="tag tag-ok">${ICONS.wifi} Online</span>` : `<span class="tag">${ICONS.wifiOff} Offline</span>`}</td>
                 <td style="font-size:11.5px;color:var(--muted);">${u.lastLogin}</td>
-                <td style="text-align:right;"><button class="icon-btn" data-action="remove-user" data-id="${u.id}">${ICONS.trash}</button></td>
+                <td style="text-align:right;white-space:nowrap;">
+                  ${!u.approved ? `<button class="btn btn-primary btn-sm" style="margin-right:6px;" data-action="approve-user" data-id="${u.id}">Approve</button>` : ""}
+                  <button class="icon-btn" data-action="remove-user" data-id="${u.id}">${ICONS.trash}</button>
+                </td>
               </tr>`).join("")}
           </tbody>
         </table>
@@ -1945,6 +1964,14 @@ function attachHandlers() {
     }
     else if (action === "remove-category") {
       askConfirm("Remove category?", `SKUs currently under "${el.dataset.cat}" will keep the label until reassigned.`, "delete-category", el.dataset.cat, "Remove");
+    }
+    else if (action === "approve-user") {
+      const { error } = await sb.from("profiles").update({ approved: true }).eq("id", el.dataset.id);
+      if (error) { showToast(error.message, "danger"); return; }
+      const u = state.users.find(u => u.id === el.dataset.id);
+      if (u) u.approved = true;
+      showToast("User approved — they can now sign in.", "ok");
+      render();
     }
     else if (action === "remove-user") {
       if (el.dataset.id === state.session.id) { showToast("You can't delete your own account while signed in", "danger"); return; }
