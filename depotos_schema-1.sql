@@ -80,6 +80,7 @@ create table public.profiles (
 -- the first person to ever sign up becomes Admin and is auto-approved;
 -- everyone after that gets their requested role but stays unapproved
 -- until an Admin approves them from the Users page.
+-- There is only ONE admin account in this system (the first signup).
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -87,15 +88,19 @@ security definer set search_path = public
 as $$
 declare
   is_first boolean;
+  admin_exists boolean;
 begin
   select not exists(select 1 from public.profiles) into is_first;
+  -- ensure only one admin: if one already exists, assign Stock Clerk instead
+  select exists(select 1 from public.profiles where role = 'Admin') into admin_exists;
+  
   insert into public.profiles (id, name, username, email, role, approved)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'name', split_part(new.email,'@',1)),
     coalesce(new.raw_user_meta_data->>'username', split_part(new.email,'@',1)),
     new.email,
-    case when is_first then 'Admin'::public.app_role
+    case when is_first and not admin_exists then 'Admin'::public.app_role
          else coalesce((new.raw_user_meta_data->>'role')::public.app_role, 'Stock Clerk') end,
     is_first
   );

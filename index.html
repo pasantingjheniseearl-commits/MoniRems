@@ -466,6 +466,7 @@ async function doLogin(usernameOrEmail, password) {
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
     if (error) { showToast(error.message, "danger"); return; }
     const { data: prof } = await sb.from("profiles").select("*").eq("id", data.user.id).single();
+    // Only the first signup (Admin) is auto-approved. All others require admin approval.
     if (!prof.approved) {
       await sb.auth.signOut();
       showToast("Your account is waiting on admin approval. Try again once you've been approved.", "danger");
@@ -504,7 +505,8 @@ async function doSignup(payload) {
       render();
       return;
     }
-    // Only reachable for the very first account, auto-approved as Admin.
+    // First signup only: auto-approved as Admin. Password is encrypted by Supabase.
+    // This is the ONLY admin account in the system. All other signups require approval.
     await sb.from("profiles").update({ status: "online", last_login: fmt(0) }).eq("id", data.user.id);
     await sb.from("login_logs").insert({ user_name: prof.name, role: prof.role, action: "Account created & signed in", timestamp: fmt(0) });
     state.session = mapProfile({ ...prof, status: "online", last_login: fmt(0) });
