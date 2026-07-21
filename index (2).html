@@ -1,0 +1,1517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DEPOT/OS — Warehouse Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#14171D; --panel:#1E222B; --panel-2:#181C24; --field:#161A21;
+    --line:#2A2F3A; --line-2:#20242E; --text:#E8EAED; --muted:#8A93A3; --dim:#5A6272;
+    --accent:#FF8A3D; --accent-dk:#3A2617; --accent-bd:#4A331F;
+    --ok:#4DD9C7; --ok-dk:#12312C; --ok-bd:#1E4A42;
+    --danger:#FF6B6F; --danger-dk:#2A1416; --danger-bd:#5C2226;
+    --violet:#9E8CFF; --violet-dk:#251F3D; --violet-bd:#3C3466;
+    --sidebar-w:64px; --sidebar-w-open:236px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:#2A2F3A;border-radius:4px;}
+  input,select,button,textarea{font-family:inherit;}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  input,select,textarea{
+    background:var(--field); border:1px solid var(--line); border-radius:3px;
+    padding:9px 12px; font-size:13.5px; color:var(--text); outline:none; width:100%; min-width:0;
+  }
+  input::placeholder,textarea::placeholder{color:#5A6272;}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent);}
+  input:disabled{opacity:.55;cursor:not-allowed;}
+  label.field{display:flex;flex-direction:column;gap:5px;font-size:13px;min-width:0;}
+  label.field .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
+  button{cursor:pointer;border:none;font-size:13.5px;}
+  .btn{
+    font-size:13.5px;font-weight:500;padding:9px 15px;border-radius:3px;
+    display:inline-flex;align-items:center;gap:7px;justify-content:center;transition:.15s;white-space:nowrap;
+  }
+  .btn-primary{background:var(--accent);color:#1C1017;}
+  .btn-primary:hover{background:#FF9D5C;}
+  .btn-primary:disabled{opacity:.4;cursor:not-allowed;}
+  .btn-ghost{background:transparent;color:var(--text);border:1px solid #3A4150;}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+  .btn-danger{background:transparent;color:var(--danger);border:1px solid var(--danger-bd);}
+  .btn-danger:hover{background:var(--danger-dk);}
+  .btn-sm{padding:6px 11px;font-size:12.5px;}
+  .icon-btn{background:none;color:var(--dim);padding:5px;display:inline-flex;border-radius:3px;}
+  .icon-btn:hover{color:var(--danger);background:var(--danger-dk);}
+  .icon-btn.edit:hover{color:var(--accent);background:var(--accent-dk);}
+  .icon-btn.msg:hover{color:var(--ok);background:var(--ok-dk);}
+
+  .tag{
+    position:relative;display:inline-flex;align-items:center;gap:5px;
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.02em;
+    padding:4px 9px 4px 12px;border:1px solid var(--line);border-radius:2px;
+    background:#2A2F3A;color:var(--text);white-space:nowrap;
+  }
+  .tag::before{content:"";position:absolute;left:-3px;top:50%;transform:translateY(-50%);
+    width:5px;height:5px;border-radius:50%;background:#0F1115;border:1px solid currentColor;}
+  .tag-accent{background:var(--accent-dk);color:var(--accent);border-color:var(--accent-bd);}
+  .tag-ok{background:var(--ok-dk);color:var(--ok);border-color:var(--ok-bd);}
+  .tag-danger{background:var(--danger-dk);color:var(--danger);border-color:var(--danger-bd);}
+  .tag-violet{background:var(--violet-dk);color:var(--violet);border-color:var(--violet-bd);}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:5px 10px;border-radius:20px;
+    background:var(--field);border:1px solid var(--line);color:var(--muted);}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;min-width:0;}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:560px;}
+  thead tr{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+    background:var(--panel-2);border-bottom:1px solid var(--line);}
+  th{padding:9px 14px;white-space:nowrap;}
+  td{padding:9px 14px;border-bottom:1px solid var(--line-2);}
+  tr:last-child td{border-bottom:none;}
+  .pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:12px;font-size:12px;color:var(--muted);flex-wrap:wrap;}
+
+  /* ---- layout ---- */
+  #app{min-height:100vh;width:100%;}
+  .shell{display:flex;min-height:100vh;}
+  .sidebar{
+    position:fixed;top:0;left:0;bottom:0;width:var(--sidebar-w);z-index:100;
+    background:var(--panel-2);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;overflow:hidden;transition:width .18s ease;
+  }
+  .sidebar:hover,.sidebar:focus-within{width:var(--sidebar-w-open);box-shadow:6px 0 28px rgba(0,0,0,.4);}
+  .hide-collapsed{opacity:0;max-width:0;overflow:hidden;white-space:nowrap;transition:opacity .12s ease,max-width .18s ease;}
+  .sidebar:hover .hide-collapsed,.sidebar:focus-within .hide-collapsed{opacity:1;max-width:180px;}
+  .brand{padding:18px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;}
+  .brand-mark{width:32px;height:32px;flex-shrink:0;border-radius:3px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#1C1017;}
+  .brand-name{font-size:13.5px;font-weight:600;letter-spacing:-.01em;}
+  .brand-sub{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.14em;}
+  .nav{flex:1;padding:14px 12px;display:flex;flex-direction:column;gap:3px;}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:3px;font-size:13.5px;
+    color:#B4BAC5;border:1px solid transparent;text-align:left;background:none;width:100%;}
+  .nav-item:hover{background:#1F2430;}
+  .nav-item.active{background:var(--accent-dk);color:var(--accent);border-color:var(--accent-bd);}
+  .nav-item svg{flex-shrink:0;}
+  .sidebar-foot{padding:14px 12px;border-top:1px solid var(--line);}
+  .who{display:flex;align-items:center;gap:8px;padding:0 8px;margin-bottom:12px;}
+  .dot{width:8px;height:8px;flex-shrink:0;border-radius:50%;background:var(--ok);}
+  .who-name{font-size:12.5px;font-weight:500;}
+  .who-role{font-size:11px;color:var(--muted);}
+
+  .main{flex:1;min-width:0;margin-left:var(--sidebar-w);display:flex;flex-direction:column;min-height:100vh;}
+  .topbar{min-height:56px;border-bottom:1px solid var(--line);display:flex;align-items:center;
+    justify-content:space-between;padding:10px 24px;flex-shrink:0;gap:12px;flex-wrap:wrap;}
+  .content{flex:1;overflow-y:auto;padding:24px;}
+  h1.page-title{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px;}
+  p.page-sub{font-size:13.5px;color:var(--muted);margin:0;}
+  .stripe{position:fixed;top:0;left:0;width:100%;height:6px;z-index:300;
+    background:repeating-linear-gradient(45deg,#FF8A3D 0,#FF8A3D 10px,#1C1017 10px,#1C1017 20px);}
+
+  .grid{display:grid;gap:14px;}
+  .grid-4{grid-template-columns:repeat(4,1fr);}
+  .grid-2{grid-template-columns:repeat(2,1fr);}
+  .grid-3{grid-template-columns:repeat(3,1fr);}
+  .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  @media(max-width:900px){
+    .grid-4{grid-template-columns:repeat(2,1fr);} .grid-3{grid-template-columns:1fr;}
+    .dash-row{grid-template-columns:1fr !important;}
+  }
+  @media(max-width:520px){.grid-4{grid-template-columns:1fr;}}
+
+  .stat-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);}
+  .stat-value{font-size:24px;font-weight:600;font-family:'IBM Plex Mono',monospace;margin-top:8px;word-break:break-word;}
+  .stat-sub{font-size:11px;color:var(--muted);margin-top:6px;}
+
+  .toast{margin-bottom:16px;padding:10px 16px;border-radius:3px;font-size:13.5px;border:1px solid;}
+  .toast-ok{background:var(--ok-dk);border-color:var(--ok-bd);color:var(--ok);}
+  .toast-danger{background:var(--danger-dk);border-color:var(--danger-bd);color:var(--danger);}
+
+  .chart-wrap{height:230px;display:flex;align-items:flex-end;gap:14px;padding-top:10px;min-width:280px;}
+  .chart-day{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;}
+  .bars{display:flex;align-items:flex-end;gap:4px;height:100%;width:100%;justify-content:center;}
+  .bar{width:16px;border-radius:2px 2px 0 0;transition:height .3s;}
+  .bar-in{background:var(--ok);}
+  .bar-out{background:var(--accent);}
+  .chart-daylabel{font-size:11px;color:var(--dim);}
+
+  .auth-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .auth-box{width:100%;max-width:420px;}
+  .auth-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:26px;}
+  .tabs{display:flex;gap:4px;background:var(--field);border-radius:3px;padding:4px;margin-bottom:22px;}
+  .tab-btn{flex:1;padding:9px;font-size:13.5px;border-radius:3px;background:none;color:var(--muted);}
+  .tab-btn.active{background:var(--accent);color:#1C1017;font-weight:600;}
+  .role-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .role-opt{padding:9px 6px;font-size:11.5px;border-radius:3px;border:1px solid var(--line);background:none;color:var(--muted);}
+  .role-opt.active{border-color:var(--accent);background:var(--accent-dk);color:var(--accent);}
+
+  .stockin-tabs{display:flex;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:4px;width:fit-content;}
+  .stockin-tab{padding:9px 15px;font-size:13.5px;border-radius:3px;background:none;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap;}
+  .stockin-tab.active-in{background:var(--ok-dk);color:var(--ok);}
+  .stockin-tab.active-out{background:var(--accent-dk);color:var(--accent);}
+
+  .row-grid{display:grid;grid-template-columns:2fr 3fr 1fr 2fr 28px;gap:10px;align-items:center;margin-bottom:8px;}
+  .row-grid.single{grid-template-columns:2fr 3fr 1fr 3fr;}
+  .row-head{display:grid;grid-template-columns:2fr 3fr 1fr 2fr 28px;gap:10px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px;padding:0 2px;}
+  .row-head.single{grid-template-columns:2fr 3fr 1fr 3fr;}
+  @media(max-width:700px){
+    .row-grid,.row-grid.single,.row-head,.row-head.single{grid-template-columns:1fr;}
+    .row-head{display:none;}
+  }
+
+  .user-chip{display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:8px 12px;font-size:12.5px;}
+  .role-pill{font-size:11px;font-weight:500;padding:5px 12px;border-radius:20px;border:1px solid;white-space:nowrap;}
+
+  .checkbox-row{display:flex;align-items:center;gap:8px;font-size:13.5px;color:#B4BAC5;cursor:pointer;user-select:none;}
+  .checkbox-row input{width:auto;accent-color:var(--accent);}
+
+  .avatar{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px;flex-shrink:0;}
+  .avatar-sm{width:32px;height:32px;font-size:12px;}
+  hr.sep{border:none;border-top:1px solid var(--line);margin:16px 0;}
+
+  /* team / online button + slideover */
+  .team-btn{display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--line);border-radius:20px;padding:6px 14px 6px 6px;}
+  .team-btn:hover{border-color:var(--ok-bd);}
+  .stack-avatars{display:flex;}
+  .stack-avatars .avatar-sm{margin-left:-8px;border:2px solid var(--panel-2);}
+  .stack-avatars .avatar-sm:first-child{margin-left:0;}
+
+  .backdrop{position:fixed;inset:0;background:rgba(6,8,11,.55);z-index:190;opacity:0;pointer-events:none;transition:opacity .18s;}
+  .backdrop.open{opacity:1;pointer-events:auto;}
+  .panel{position:fixed;top:0;right:0;bottom:0;width:360px;max-width:92vw;background:var(--panel-2);
+    border-left:1px solid var(--line);z-index:200;transform:translateX(100%);transition:transform .2s ease;
+    display:flex;flex-direction:column;}
+  .panel.open{transform:translateX(0);}
+  .panel-head{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+  .panel-body{flex:1;overflow-y:auto;padding:14px;}
+  .panel-note{padding:10px 14px;font-size:11px;color:var(--muted);border-top:1px solid var(--line);background:var(--panel);flex-shrink:0;}
+  .team-row{display:flex;align-items:center;gap:10px;padding:10px 8px;border-radius:5px;}
+  .team-row:hover{background:var(--field);}
+  .msg-thread{display:flex;flex-direction:column;gap:10px;padding:4px 2px;}
+  .msg-bubble{max-width:80%;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.4;}
+  .msg-me{align-self:flex-end;background:var(--accent-dk);color:var(--text);border:1px solid var(--accent-bd);border-bottom-right-radius:2px;}
+  .msg-them{align-self:flex-start;background:var(--field);border:1px solid var(--line);border-bottom-left-radius:2px;}
+  .msg-time{font-size:10px;color:var(--dim);margin-top:3px;}
+  .chat-input-row{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line);flex-shrink:0;}
+
+  /* modal */
+  .modal-backdrop{position:fixed;inset:0;background:rgba(6,8,11,.6);z-index:250;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:22px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;}
+  .modal h3{margin:0 0 4px;font-size:15px;font-weight:600;}
+  .modal p.hint{margin:0 0 18px;font-size:12.5px;color:var(--muted);}
+
+  .banner{display:flex;align-items:flex-start;gap:10px;padding:11px 14px;border-radius:4px;border:1px solid var(--violet-bd);
+    background:var(--violet-dk);color:#C9BFFF;font-size:12.5px;margin-bottom:16px;line-height:1.5;}
+
+  ::selection{background:var(--accent);color:#1C1017;}
+</style>
+</head>
+<body>
+<div class="stripe" id="stripe" style="display:none;"></div>
+<div id="app"></div>
+
+<script>
+/* ---------------------------------------------------------
+   ICONS (inline SVG, stroke-based)
+--------------------------------------------------------- */
+const ICONS = {
+  grid: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
+  search: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>`,
+  boxes: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 1 9 4.24V4.24l3 1.8v5.5L7 8.5V3.33l.97 1.09Z"/><path d="M12 6.5 7 3.5"/><path d="m12 6.5 5-3"/></svg>`,
+  map: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`,
+  users: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  scroll: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/></svg>`,
+  user: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>`,
+  logout: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`,
+  down: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>`,
+  up: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 7v14"/><path d="m18 13-6-6-6 6"/><path d="M19 3H5"/></svg>`,
+  alert: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
+  layers: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>`,
+  wifi: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 20 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>`,
+  wifiOff: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 4.17-2.65"/><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/><path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/><path d="M5 13a10 10 0 0 1 5.24-2.76"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>`,
+  plus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  trash: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+  check: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+  package: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`,
+  pencil: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`,
+  upload: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
+  download: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  refresh: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M8 21v-5h5"/></svg>`,
+  x: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+  send: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+  back: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`,
+  tag: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>`,
+  filePdf: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+};
+
+/* ---------------------------------------------------------
+   SEED DATA
+--------------------------------------------------------- */
+const ROLES = ["Admin", "Stock Clerk", "Selling Clerk"];
+
+function fmt(daysAgo = 0, h, m) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  if (h !== undefined) d.setHours(h, m ?? 0, 0, 0);
+  return d.toISOString().slice(0, 16).replace("T", " ");
+}
+function dayKeyOf(str){ return str.slice(0,10); }
+function daysBetween(tsStr){
+  const then = new Date(tsStr.replace(" ","T"));
+  return (Date.now() - then.getTime()) / (1000*60*60*24);
+}
+
+let state = {
+  users: [
+    { id: "u1", name: "Marisol Reyes", username: "mreyes", email: "mreyes@wh.local", role: "Admin", status: "online", lastLogin: "2026-07-20 07:52" },
+    { id: "u2", name: "Dante Cruz", username: "dcruz", email: "dcruz@wh.local", role: "Stock Clerk", status: "online", lastLogin: "2026-07-20 06:40" },
+    { id: "u3", name: "Priya Santos", username: "psantos", email: "psantos@wh.local", role: "Selling Clerk", status: "offline", lastLogin: "2026-07-19 17:12" },
+    { id: "u4", name: "Wendell Ong", username: "wong", email: "wong@wh.local", role: "Stock Clerk", status: "online", lastLogin: "2026-07-20 08:05" },
+  ],
+  categories: ["Packaging Materials", "Pallets & Racking", "Cold Chain", "Hardware & Fasteners"],
+  locators: [
+    { code: "A1-R1-S1", zone: "Zone A", description: "Aisle 1, Rack 1, Shelf 1" },
+    { code: "A1-R1-S2", zone: "Zone A", description: "Aisle 1, Rack 1, Shelf 2" },
+    { code: "A1-R2-S1", zone: "Zone A", description: "Aisle 1, Rack 2, Shelf 1" },
+    { code: "B2-R1-S1", zone: "Zone B", description: "Aisle 2, Rack 1, Shelf 1" },
+    { code: "B2-R3-S2", zone: "Zone B", description: "Aisle 2, Rack 3, Shelf 2" },
+    { code: "C3-R1-S1", zone: "Zone C", description: "Aisle 3, Rack 1, Shelf 1" },
+    { code: "COLD-01", zone: "Cold Storage", description: "Cold storage bay 1" },
+  ],
+  inventory: [
+    { sku: "SKU-1001", description: "Corrugated Box 12x12x12", category: "Packaging Materials", locator: "A1-R1-S1", qty: 420, unitValue: 18.5, reorder: 100 },
+    { sku: "SKU-1002", description: "Stretch Wrap Film 500mm", category: "Packaging Materials", locator: "A1-R1-S2", qty: 36, unitValue: 210, reorder: 40 },
+    { sku: "SKU-1003", description: "Packing Tape Clear 48mm", category: "Packaging Materials", locator: "A1-R2-S1", qty: 210, unitValue: 32, reorder: 80 },
+    { sku: "SKU-1004", description: "Pallet Wood Standard", category: "Pallets & Racking", locator: "B2-R1-S1", qty: 58, unitValue: 350, reorder: 30 },
+    { sku: "SKU-1005", description: "Bubble Wrap Roll 1m x 100m", category: "Packaging Materials", locator: "B2-R3-S2", qty: 12, unitValue: 480, reorder: 15 },
+    { sku: "SKU-1006", description: "Zip Lock Bag 4x6", category: "Packaging Materials", locator: "C3-R1-S1", qty: 900, unitValue: 2.1, reorder: 300 },
+    { sku: "SKU-1007", description: "Frozen Sample Cartons", category: "Cold Chain", locator: "COLD-01", qty: 24, unitValue: 620, reorder: 20 },
+    { sku: "SKU-1008", description: "Cable Ties 300mm (100pk)", category: "Hardware & Fasteners", locator: "A1-R2-S1", qty: 65, unitValue: 95, reorder: 50 },
+  ],
+  transactions: [
+    { id: "T-9001", type: "IN", sku: "SKU-1001", description: "Corrugated Box 12x12x12", qty: 200, locator: "A1-R1-S1", notes: "PO-2201 receipt", user: "Dante Cruz", value: 3700, timestamp: fmt(1, 8, 15) },
+    { id: "T-9002", type: "OUT", sku: "SKU-1003", description: "Packing Tape Clear 48mm", qty: 40, locator: "A1-R2-S1", notes: "Selling area replenish", user: "Priya Santos", value: 1280, timestamp: fmt(1, 10, 5) },
+    { id: "T-9003", type: "OUT", sku: "SKU-1002", description: "Stretch Wrap Film 500mm", qty: 6, locator: "A1-R1-S2", notes: "Outbound shipment #552", user: "Priya Santos", value: 1260, timestamp: fmt(2, 9, 40) },
+    { id: "T-9004", type: "IN", sku: "SKU-1005", description: "Bubble Wrap Roll 1m x 100m", qty: 10, locator: "B2-R3-S2", notes: "PO-2202 receipt", user: "Wendell Ong", value: 4800, timestamp: fmt(2, 14, 0) },
+    { id: "T-9005", type: "OUT", sku: "SKU-1006", description: "Zip Lock Bag 4x6", qty: 150, locator: "C3-R1-S1", notes: "Selling area replenish", user: "Priya Santos", value: 315, timestamp: fmt(3, 11, 20) },
+    { id: "T-9006", type: "IN", sku: "SKU-1004", description: "Pallet Wood Standard", qty: 20, locator: "B2-R1-S1", notes: "Supplier drop-off", user: "Dante Cruz", value: 7000, timestamp: fmt(3, 13, 30) },
+    { id: "T-9007", type: "OUT", sku: "SKU-1007", description: "Frozen Sample Cartons", qty: 4, locator: "COLD-01", notes: "Selling area replenish", user: "Priya Santos", value: 2480, timestamp: fmt(4, 9, 10) },
+    { id: "T-9008", type: "IN", sku: "SKU-1008", description: "Cable Ties 300mm (100pk)", qty: 30, locator: "A1-R2-S1", notes: "PO-2203 receipt", user: "Wendell Ong", value: 2850, timestamp: fmt(5, 8, 50) },
+    { id: "T-9009", type: "OUT", sku: "SKU-1001", description: "Corrugated Box 12x12x12", qty: 60, locator: "A1-R1-S1", notes: "Outbound shipment #553", user: "Priya Santos", value: 1110, timestamp: fmt(5, 15, 40) },
+    { id: "T-9010", type: "OUT", sku: "SKU-1002", description: "Stretch Wrap Film 500mm", qty: 4, locator: "A1-R1-S2", notes: "Selling area replenish", user: "Priya Santos", value: 840, timestamp: fmt(6, 10, 0) },
+    { id: "T-9011", type: "IN", sku: "SKU-1003", description: "Packing Tape Clear 48mm", qty: 100, locator: "A1-R2-S1", notes: "PO-2204 receipt", user: "Dante Cruz", value: 3200, timestamp: fmt(6, 8, 30) },
+    { id: "T-9012", type: "OUT", sku: "SKU-1005", description: "Bubble Wrap Roll 1m x 100m", qty: 3, locator: "B2-R3-S2", notes: "Outbound shipment #554", user: "Priya Santos", value: 1440, timestamp: fmt(0, 8, 45) },
+  ],
+  loginLogs: [
+    { user: "Marisol Reyes", role: "Admin", action: "Signed in", timestamp: fmt(0, 7, 52) },
+    { user: "Wendell Ong", role: "Stock Clerk", action: "Signed in", timestamp: fmt(0, 8, 5) },
+    { user: "Dante Cruz", role: "Stock Clerk", action: "Signed in", timestamp: fmt(0, 6, 40) },
+    { user: "Priya Santos", role: "Selling Clerk", action: "Signed out", timestamp: fmt(1, 17, 12) },
+  ],
+  messages: [
+    { id: "m1", from: "u1", to: "u2", text: "Please recount pallet wood before end of day.", timestamp: fmt(2, 9, 5) },
+    { id: "m2", from: "u2", to: "u1", text: "On it — will update the count by 3pm.", timestamp: fmt(2, 9, 20) },
+    { id: "m4", from: "u4", to: "u3", text: "Zip lock bags are running low, replenish request is in.", timestamp: fmt(1, 14, 10) },
+  ],
+
+  session: null,
+  authMode: "login",
+  view: "dashboard",
+  toast: null,
+  txTab: "stock",
+  txPage: 1,
+  lookupQ: "",
+  lookupLoc: "all",
+  lookupCat: "all",
+  lookupPage: 1,
+  stockType: "IN",
+  bulk: false,
+  rows: [{ sku: "", description: "", qty: "", notes: "" }],
+  teamPanelOpen: false,
+  chatWith: null,
+  editItem: null,
+  confirm: null,
+  _notifiedRetention: false,
+};
+
+const PAGE_SIZE = 8;
+
+function showToast(msg, tone) {
+  state.toast = { msg, tone };
+  render();
+  setTimeout(() => { state.toast = null; render(); }, 2600);
+}
+
+function roleColor(role) {
+  return role === "Admin" ? "#FF8A3D" : role === "Stock Clerk" ? "#4DD9C7" : "#9E8CFF";
+}
+function initials(name){ return name.split(" ").map(n=>n[0]).join(""); }
+function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function isAdmin(){ return state.session && state.session.role === "Admin"; }
+
+/* ---------------------------------------------------------
+   MESSAGE RETENTION (auto-purge after 3 months / ~90 days)
+--------------------------------------------------------- */
+function purgeOldMessages() {
+  const before = state.messages.length;
+  state.messages = state.messages.filter(m => daysBetween(m.timestamp) <= 90);
+  return before - state.messages.length;
+}
+
+/* ---------------------------------------------------------
+   AUTH ACTIONS
+--------------------------------------------------------- */
+function doLogin(username) {
+  const u = state.users.find(x => x.username.toLowerCase() === username.toLowerCase());
+  if (!u) return showToast("No account with that username", "danger");
+  u.status = "online"; u.lastLogin = fmt(0);
+  state.loginLogs.unshift({ user: u.name, role: u.role, action: "Signed in", timestamp: fmt(0) });
+  state.session = { ...u };
+  state.view = "dashboard";
+  render();
+}
+function doSignup(payload) {
+  if (state.users.some(u => u.username.toLowerCase() === payload.username.toLowerCase())) {
+    return showToast("Username already taken", "danger");
+  }
+  const newUser = {
+    id: "u" + (state.users.length + 1) + Math.floor(Math.random()*999),
+    name: payload.name, username: payload.username, email: payload.email,
+    role: payload.role, status: "online", lastLogin: fmt(0),
+  };
+  state.users.push(newUser);
+  state.loginLogs.unshift({ user: newUser.name, role: newUser.role, action: "Account created & signed in", timestamp: fmt(0) });
+  state.session = { ...newUser };
+  state.view = "dashboard";
+  render();
+}
+function doLogout() {
+  const u = state.users.find(x => x.id === state.session.id);
+  if (u) u.status = "offline";
+  state.loginLogs.unshift({ user: state.session.name, role: state.session.role, action: "Signed out", timestamp: fmt(0) });
+  state.session = null;
+  state.authMode = "login";
+  state.teamPanelOpen = false;
+  state.chatWith = null;
+  render();
+}
+
+/* ---------------------------------------------------------
+   RENDER: ROOT
+--------------------------------------------------------- */
+function render() {
+  purgeOldMessages();
+  const app = document.getElementById("app");
+  document.getElementById("stripe").style.display = state.session ? "none" : "block";
+  app.innerHTML = state.session ? renderShell() : renderAuth();
+  attachHandlers();
+}
+
+/* ---------------------------------------------------------
+   AUTH SCREEN
+--------------------------------------------------------- */
+function renderAuth() {
+  const t = state.toast ? `<div class="toast toast-${t_tone()}">${esc(state.toast.msg)}</div>` : "";
+  const mode = state.authMode;
+  return `
+  <div class="auth-wrap">
+    <div class="auth-box">
+      <div style="display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:28px;">
+        <div class="brand-mark">${ICONS.package}</div>
+        <div>
+          <div class="brand-name" style="font-size:15px;">DEPOT/OS</div>
+          <div class="brand-sub">Warehouse Monitor</div>
+        </div>
+      </div>
+      <div class="auth-card">
+        <div class="tabs">
+          <button class="tab-btn ${mode==='login'?'active':''}" data-action="set-auth-mode" data-mode="login">Sign in</button>
+          <button class="tab-btn ${mode==='signup'?'active':''}" data-action="set-auth-mode" data-mode="signup">Create account</button>
+        </div>
+        ${t}
+        ${mode === "login" ? renderLoginForm() : renderSignupForm()}
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--dim);margin-top:18px;">
+        Prototype front-end — no real credentials required.
+      </div>
+    </div>
+  </div>`;
+}
+function t_tone(){ return state.toast?.tone === "danger" ? "danger" : "ok"; }
+
+function renderLoginForm() {
+  return `
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <label class="field"><span class="lbl">Username</span>
+        <input id="login-username" placeholder="e.g. mreyes" />
+      </label>
+      <label class="field"><span class="lbl">Password</span>
+        <input type="password" placeholder="••••••••" />
+      </label>
+      <button class="btn btn-primary" style="margin-top:2px;" data-action="do-login">Sign in</button>
+      <div style="font-size:11px;color:var(--dim);text-align:center;line-height:1.6;">
+        Try: mreyes (Admin) · dcruz (Stock Clerk) · psantos (Selling Clerk)
+      </div>
+    </div>`;
+}
+function renderSignupForm() {
+  const role = state._signupRole || "Stock Clerk";
+  return `
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <label class="field"><span class="lbl">Full name</span><input id="su-name" /></label>
+      <label class="field"><span class="lbl">Username</span><input id="su-username" /></label>
+      <label class="field"><span class="lbl">Email</span><input id="su-email" type="email" /></label>
+      <label class="field"><span class="lbl">Password</span><input id="su-password" type="password" /></label>
+      <label class="field"><span class="lbl">Account type</span>
+        <div class="role-grid">
+          ${ROLES.map(r => `<button class="role-opt ${role===r?'active':''}" data-action="set-signup-role" data-role="${r}">${r}</button>`).join("")}
+        </div>
+      </label>
+      <button class="btn btn-primary" style="margin-top:2px;" data-action="do-signup">Create account</button>
+    </div>`;
+}
+
+/* ---------------------------------------------------------
+   APP SHELL
+--------------------------------------------------------- */
+function renderShell() {
+  const admin = isAdmin();
+  const navItems = [
+    { key: "dashboard", label: "Dashboard", icon: ICONS.grid },
+    { key: "lookup", label: "Inventory Lookup", icon: ICONS.search },
+    { key: "stock", label: "Stock In / Out", icon: ICONS.boxes },
+    ...(admin ? [{ key: "locators", label: "Locators & Categories", icon: ICONS.map }] : []),
+    ...(admin ? [{ key: "users", label: "Users", icon: ICONS.users }] : []),
+    ...(admin ? [{ key: "transactions", label: "Transaction Log", icon: ICONS.scroll }] : []),
+    { key: "profile", label: "Profile", icon: ICONS.user },
+  ];
+  const onlineUsers = state.users.filter(u => u.status === "online");
+  const dateStr = new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+  return `
+  <div class="shell">
+    <aside class="sidebar" tabindex="0">
+      <div class="brand">
+        <div class="brand-mark">${ICONS.package}</div>
+        <div class="hide-collapsed"><div class="brand-name">DEPOT/OS</div><div class="brand-sub">Warehouse Monitor</div></div>
+      </div>
+      <nav class="nav">
+        ${navItems.map(item => `
+          <button class="nav-item ${state.view===item.key?'active':''}" data-action="set-view" data-view="${item.key}" title="${item.label}">
+            ${item.icon}<span class="hide-collapsed">${item.label}</span>
+          </button>`).join("")}
+      </nav>
+      <div class="sidebar-foot">
+        <div class="who">
+          <span class="dot"></span>
+          <div class="hide-collapsed"><div class="who-name">${esc(state.session.name)}</div><div class="who-role">${esc(state.session.role)}</div></div>
+        </div>
+        <button class="btn btn-ghost" style="width:100%;" data-action="do-logout" title="Sign out">${ICONS.logout}<span class="hide-collapsed">Sign out</span></button>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div style="font-size:13.5px;color:var(--muted);">${dateStr}</div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button class="team-btn" data-action="toggle-team-panel" title="See who's online and message the team">
+            <span class="stack-avatars">
+              ${onlineUsers.slice(0,3).map(u => `<span class="avatar avatar-sm" style="background:${roleColor(u.role)}22;color:${roleColor(u.role)};">${initials(u.name)}</span>`).join("")}
+            </span>
+            <span style="font-size:12.5px;color:var(--text);">${onlineUsers.length} online</span>
+          </button>
+          <span class="role-pill" style="color:${roleColor(state.session.role)};border-color:${roleColor(state.session.role)}55;background:${roleColor(state.session.role)}14;">${esc(state.session.role)}</span>
+        </div>
+      </header>
+      <div class="content">
+        ${state.toast ? `<div class="toast toast-${t_tone()}">${esc(state.toast.msg)}</div>` : ""}
+        ${renderView()}
+      </div>
+    </main>
+    ${renderTeamPanel()}
+    ${state.editItem ? renderEditItemModal() : ""}
+    ${state.confirm ? renderConfirmModal() : ""}
+  </div>`;
+}
+
+function renderView() {
+  switch (state.view) {
+    case "dashboard": return renderDashboard();
+    case "lookup": return renderLookup();
+    case "stock": return renderStock();
+    case "locators": return isAdmin() ? renderLocators() : renderDashboard();
+    case "users": return isAdmin() ? renderUsers() : renderDashboard();
+    case "transactions": return isAdmin() ? renderTransactions() : renderDashboard();
+    case "profile": return renderProfile();
+    default: return renderDashboard();
+  }
+}
+
+/* ---------------------------------------------------------
+   TEAM PANEL + MESSAGING
+--------------------------------------------------------- */
+function renderTeamPanel() {
+  const open = state.teamPanelOpen;
+  const chattingWith = state.chatWith ? state.users.find(u => u.id === state.chatWith) : null;
+
+  let body;
+  if (chattingWith) {
+    const thread = state.messages
+      .filter(m => (m.from === state.session.id && m.to === chattingWith.id) || (m.from === chattingWith.id && m.to === state.session.id))
+      .sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+    body = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <button class="icon-btn" style="color:var(--text);" data-action="back-to-team-list">${ICONS.back}</button>
+        <span class="avatar avatar-sm" style="background:${roleColor(chattingWith.role)}22;color:${roleColor(chattingWith.role)};">${initials(chattingWith.name)}</span>
+        <div>
+          <div style="font-size:13px;font-weight:500;">${esc(chattingWith.name)}</div>
+          <div style="font-size:11px;color:var(--muted);">${esc(chattingWith.role)} · ${chattingWith.status==='online'?'Online':'Offline'}</div>
+        </div>
+      </div>
+      <div class="msg-thread">
+        ${thread.length === 0 ? `<div style="font-size:12.5px;color:var(--dim);text-align:center;padding:20px 0;">No messages yet — say hello.</div>` :
+          thread.map(m => `
+            <div style="display:flex;flex-direction:column;${m.from===state.session.id?'align-items:flex-end;':'align-items:flex-start;'}">
+              <div class="msg-bubble ${m.from===state.session.id?'msg-me':'msg-them'}">${esc(m.text)}</div>
+              <div class="msg-time">${m.timestamp}</div>
+            </div>`).join("")}
+      </div>`;
+  } else {
+    body = state.users.map(u => `
+      <div class="team-row">
+        <span class="dot" style="background:${u.status==='online'?'var(--ok)':'var(--dim)'};"></span>
+        <span class="avatar avatar-sm" style="background:${roleColor(u.role)}22;color:${roleColor(u.role)};">${initials(u.name)}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:500;">${esc(u.name)}${u.id===state.session.id?' <span style="color:var(--dim);font-size:11px;">(you)</span>':''}</div>
+          <div style="font-size:11px;color:var(--muted);">${esc(u.role)} · ${u.status==='online'?'Online':'Offline'}</div>
+        </div>
+        ${u.id!==state.session.id ? `<button class="icon-btn msg" data-action="open-chat" data-id="${u.id}" title="Message ${esc(u.name)}">${ICONS.send}</button>` : ""}
+      </div>`).join("");
+  }
+
+  return `
+    <div class="backdrop ${open?'open':''}" data-action="close-team-panel"></div>
+    <div class="panel ${open?'open':''}">
+      <div class="panel-head">
+        <div style="font-size:14px;font-weight:600;">${chattingWith ? 'Direct message' : "Who's online"}</div>
+        <button class="icon-btn" style="color:var(--text);" data-action="close-team-panel">${ICONS.x}</button>
+      </div>
+      <div class="panel-body">${body}</div>
+      ${chattingWith ? `
+        <div class="chat-input-row">
+          <input id="chat-input" placeholder="Write a message…" />
+          <button class="btn btn-primary btn-sm" data-action="send-message">${ICONS.send}</button>
+        </div>` : ""}
+      <div class="panel-note">Direct messages are kept for 3 months and then deleted automatically to keep the system fast.</div>
+    </div>`;
+}
+
+/* ---------------------------------------------------------
+   DASHBOARD
+--------------------------------------------------------- */
+function computeCategoryStats() {
+  return state.categories.map(cat => {
+    const items = state.inventory.filter(i => i.category === cat);
+    const qty = items.reduce((s,i)=>s+i.qty,0);
+    const value = items.reduce((s,i)=>s+i.qty*i.unitValue,0);
+    return { category: cat, skuCount: items.length, qty, value };
+  });
+}
+
+function renderDashboard() {
+  const now = new Date();
+  const isThisMonth = (t) => {
+    const d = new Date(t.timestamp.replace(" ", "T"));
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  };
+  const mtdIn = state.transactions.filter(t => t.type === "IN" && isThisMonth(t));
+  const mtdOut = state.transactions.filter(t => t.type === "OUT" && isThisMonth(t));
+  const mtdInValue = mtdIn.reduce((s,t)=>s+t.value,0);
+  const mtdOutValue = mtdOut.reduce((s,t)=>s+t.value,0);
+  const lowStock = state.inventory.filter(i => i.qty <= i.reorder);
+  const totalValue = state.inventory.reduce((s,i)=>s+i.qty*i.unitValue,0);
+
+  const days = [...Array(7)].map((_, idx) => {
+    const d = new Date(); d.setDate(d.getDate() - (6-idx));
+    const label = d.toLocaleDateString(undefined, { weekday: "short" });
+    const key = d.toISOString().slice(0,10);
+    const inCount = state.transactions.filter(t => t.type==="IN" && dayKeyOf(t.timestamp)===key).length;
+    const outCount = state.transactions.filter(t => t.type==="OUT" && dayKeyOf(t.timestamp)===key).length;
+    return { label, inCount, outCount };
+  });
+  const maxCount = Math.max(1, ...days.map(d => Math.max(d.inCount, d.outCount)));
+
+  const perLocator = state.locators.map(loc => {
+    const items = state.inventory.filter(i => i.locator === loc.code);
+    const value = items.reduce((s,i)=>s+i.qty*i.unitValue,0);
+    return { ...loc, skuCount: items.length, value };
+  });
+
+  const perCategory = computeCategoryStats();
+  const maxCatValue = Math.max(1, ...perCategory.map(c => c.value));
+
+  return `
+    <div style="margin-bottom:20px;">
+      <h1 class="page-title">Dashboard</h1>
+      <p class="page-sub">Live snapshot of stock movement, value, category mix and location coverage.</p>
+    </div>
+
+    <div class="grid grid-4" style="margin-bottom:16px;">
+      ${statCard(ICONS.down, "Stock In (MTD)", mtdIn.length, `₱${mtdInValue.toLocaleString()} received`, "ok")}
+      ${statCard(ICONS.up, "Stock Out (MTD)", mtdOut.length, `₱${mtdOutValue.toLocaleString()} released`, "accent")}
+      ${statCard(ICONS.alert, "Low-stock SKUs", lowStock.length, "At or below reorder level", "danger")}
+      ${statCard(ICONS.layers, "Total inventory value", `₱${totalValue.toLocaleString()}`, `${state.inventory.length} SKUs · ${state.categories.length} categories`, "")}
+    </div>
+
+    <div class="grid dash-row" style="grid-template-columns:2fr 1fr;margin-bottom:16px;">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
+          <h2 style="font-size:13.5px;font-weight:600;margin:0;">In / Out frequency — last 7 days</h2>
+          <div style="display:flex;gap:12px;font-size:11px;color:var(--muted);">
+            <span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:50%;background:var(--ok);"></span>In</span>
+            <span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:50%;background:var(--accent);"></span>Out</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          ${days.map(d => `
+            <div class="chart-day">
+              <div class="bars">
+                <div class="bar bar-in" style="height:${(d.inCount/maxCount*170)||2}px;" title="In: ${d.inCount}"></div>
+                <div class="bar bar-out" style="height:${(d.outCount/maxCount*170)||2}px;" title="Out: ${d.outCount}"></div>
+              </div>
+              <div class="chart-daylabel">${d.label}</div>
+            </div>`).join("")}
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <h2 style="font-size:13.5px;font-weight:600;margin:0;">Low-stock SKUs</h2>
+          <span style="color:var(--danger);">${ICONS.alert}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;max-height:230px;overflow-y:auto;">
+          ${lowStock.length === 0 ? `<p style="font-size:12px;color:var(--muted);">No SKUs below reorder level.</p>` :
+            lowStock.map(i => `
+              <div style="display:flex;align-items:center;justify-content:space-between;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:8px 10px;gap:8px;">
+                <div style="min-width:0;">
+                  <div class="mono" style="font-size:12px;">${esc(i.sku)}</div>
+                  <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(i.description)}</div>
+                </div>
+                <span class="tag tag-danger">${i.qty} / ${i.reorder}</span>
+              </div>`).join("")}
+        </div>
+      </div>
+    </div>
+
+    <div class="grid dash-row" style="grid-template-columns:1.3fr 1fr;margin-bottom:16px;">
+      <div class="card">
+        <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Stock by location</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Locator</th><th>Zone</th><th>SKUs</th><th>Total value</th></tr></thead>
+            <tbody>
+              ${perLocator.map(l => `
+                <tr>
+                  <td><span class="tag">${esc(l.code)}</span></td>
+                  <td style="color:#B4BAC5;">${esc(l.zone)}</td>
+                  <td>${l.skuCount}</td>
+                  <td class="mono">₱${l.value.toLocaleString()}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Value by category</h2>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${perCategory.map(c => `
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;gap:8px;">
+                <span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.category)}</span>
+                <span class="mono" style="color:var(--muted);flex-shrink:0;">₱${c.value.toLocaleString()}</span>
+              </div>
+              <div style="height:6px;background:var(--field);border-radius:3px;overflow:hidden;">
+                <div style="height:100%;width:${(c.value/maxCatValue*100)||0}%;background:var(--accent);border-radius:3px;"></div>
+              </div>
+              <div style="font-size:10.5px;color:var(--dim);margin-top:3px;">${c.skuCount} SKU${c.skuCount!==1?'s':''} · ${c.qty.toLocaleString()} units</div>
+            </div>`).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+}
+function statCard(icon, label, value, sub, tone) {
+  const toneColor = tone === "ok" ? "var(--ok)" : tone === "accent" ? "var(--accent)" : tone === "danger" ? "var(--danger)" : "var(--text)";
+  return `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span class="stat-label">${label}</span>
+        <span style="color:var(--muted);">${icon}</span>
+      </div>
+      <div class="stat-value" style="color:${toneColor};">${value}</div>
+      <div class="stat-sub">${sub}</div>
+    </div>`;
+}
+
+/* ---------------------------------------------------------
+   INVENTORY LOOKUP (search / filter / import / export / admin edit)
+--------------------------------------------------------- */
+function filteredInventory() {
+  const q = state.lookupQ.toLowerCase();
+  return state.inventory.filter(i => {
+    const matchQ = !q || i.sku.toLowerCase().includes(q) || i.description.toLowerCase().includes(q);
+    const matchLoc = state.lookupLoc === "all" || i.locator === state.lookupLoc;
+    const matchCat = state.lookupCat === "all" || i.category === state.lookupCat;
+    return matchQ && matchLoc && matchCat;
+  });
+}
+
+function renderLookup() {
+  const admin = isAdmin();
+  return `
+    <div style="margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+      <div>
+        <h1 class="page-title">Inventory lookup</h1>
+        <p class="page-sub">Search any SKU, description, category or locator to check availability instantly.</p>
+      </div>
+      <div class="toolbar">
+        ${admin ? `<button class="btn btn-ghost btn-sm" data-action="trigger-import">${ICONS.upload} Import CSV</button>
+        <input type="file" id="import-file" accept=".csv" style="display:none;" />` : ""}
+        <button class="btn btn-ghost btn-sm" data-action="export-csv">${ICONS.download} Export CSV</button>
+        <button class="btn btn-ghost btn-sm" data-action="export-pdf">${ICONS.filePdf} Export PDF</button>
+        ${admin ? `<button class="btn btn-ghost btn-sm" data-action="open-add-item">${ICONS.plus} Add item</button>
+        <button class="btn btn-danger btn-sm" data-action="reset-qty">${ICONS.refresh} Reset all quantities</button>` : ""}
+      </div>
+    </div>
+
+    <div class="toolbar" style="margin-bottom:16px;">
+      <div style="position:relative;flex:2;min-width:200px;">
+        <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--dim);">${ICONS.search}</span>
+        <input id="lookup-q" style="padding-left:34px;" placeholder="Search SKU or description…" value="${esc(state.lookupQ)}" />
+      </div>
+      <select id="lookup-cat" style="width:200px;flex:1;min-width:160px;">
+        <option value="all" ${state.lookupCat==='all'?'selected':''}>All categories</option>
+        ${state.categories.map(c => `<option value="${esc(c)}" ${state.lookupCat===c?'selected':''}>${esc(c)}</option>`).join("")}
+      </select>
+      <select id="lookup-loc" style="width:200px;flex:1;min-width:160px;">
+        <option value="all" ${state.lookupLoc==='all'?'selected':''}>All locators</option>
+        ${state.locators.map(l => `<option value="${l.code}" ${state.lookupLoc===l.code?'selected':''}>${l.code}</option>`).join("")}
+      </select>
+    </div>
+
+    <div id="lookup-body">${renderLookupBody()}</div>
+  `;
+}
+
+function renderLookupBody() {
+  const admin = isAdmin();
+  const all = filteredInventory();
+  const totalPages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
+  if (state.lookupPage > totalPages) state.lookupPage = totalPages;
+  const start = (state.lookupPage - 1) * PAGE_SIZE;
+  const pageItems = all.slice(start, start + PAGE_SIZE);
+
+  return `
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>SKU</th><th>Description</th><th>Category</th><th>Locator</th><th>On hand</th><th>Unit value</th><th>Status</th>
+            ${admin ? `<th style="text-align:right;">Actions</th>` : ""}
+          </tr></thead>
+          <tbody>
+            ${pageItems.length === 0 ? `<tr><td colspan="${admin?8:7}" style="text-align:center;color:var(--dim);padding:28px;">No SKUs match this search.</td></tr>` :
+              pageItems.map(i => {
+                const low = i.qty <= i.reorder;
+                return `<tr>
+                  <td class="mono" style="font-size:12px;">${esc(i.sku)}</td>
+                  <td>${esc(i.description)}</td>
+                  <td><span class="tag tag-violet">${esc(i.category||'Uncategorized')}</span></td>
+                  <td><span class="tag">${esc(i.locator)}</span></td>
+                  <td>${i.qty}</td>
+                  <td class="mono" style="font-size:12px;">₱${i.unitValue.toLocaleString()}</td>
+                  <td>${low ? `<span class="tag tag-danger">Low stock</span>` : `<span class="tag tag-ok">In stock</span>`}</td>
+                  ${admin ? `<td style="text-align:right;white-space:nowrap;">
+                    <button class="icon-btn edit" data-action="edit-item" data-sku="${esc(i.sku)}" title="Edit">${ICONS.pencil}</button>
+                    <button class="icon-btn" data-action="delete-item" data-sku="${esc(i.sku)}" title="Delete">${ICONS.trash}</button>
+                  </td>` : ""}
+                </tr>`;
+              }).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="pager">
+      <span>${all.length} SKU${all.length!==1?'s':''} · page ${state.lookupPage} of ${totalPages}</span>
+      <button class="btn btn-ghost btn-sm" data-action="lookup-prev" ${state.lookupPage<=1?'disabled':''}>‹ Prev</button>
+      <button class="btn btn-ghost btn-sm" data-action="lookup-next" ${state.lookupPage>=totalPages?'disabled':''}>Next ›</button>
+    </div>
+  `;
+}
+
+function updateLookupResults() {
+  const el = document.getElementById("lookup-body");
+  if (el) el.innerHTML = renderLookupBody();
+}
+
+/* CSV / PDF helpers */
+function toCSV(items) {
+  const header = ["SKU","Description","Category","Locator","QTY","UnitValue","Reorder","Notes"];
+  const lines = [header.join(",")];
+  items.forEach(i => {
+    lines.push([i.sku, `"${(i.description||"").replace(/"/g,'""')}"`, i.category||"", i.locator||"", i.qty, i.unitValue, i.reorder, ""].join(","));
+  });
+  return lines.join("\n");
+}
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function exportCSV() {
+  const items = filteredInventory();
+  downloadBlob(toCSV(items), `inventory-export-${new Date().toISOString().slice(0,10)}.csv`, "text/csv");
+  showToast(`Exported ${items.length} SKU(s) to CSV`, "ok");
+}
+function exportPDF() {
+  if (!window.jspdf) { showToast("PDF library still loading — try again in a moment", "danger"); return; }
+  const items = filteredInventory();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(14);
+  doc.text("DEPOT/OS — Inventory Export", 14, 16);
+  doc.setFontSize(9);
+  doc.text(`Generated ${fmt(0)} · ${items.length} SKU(s)`, 14, 22);
+  let y = 32;
+  doc.setFontSize(8.5);
+  const cols = [14, 44, 110, 140, 165, 185];
+  const headers = ["SKU","Description","Category","Locator","Qty","Value"];
+  doc.setFont(undefined, "bold");
+  headers.forEach((h, idx) => doc.text(h, cols[idx], y));
+  doc.setFont(undefined, "normal");
+  y += 5;
+  doc.setDrawColor(200); doc.line(14, y-3.5, 196, y-3.5);
+  items.forEach(i => {
+    if (y > 280) { doc.addPage(); y = 20; }
+    doc.text(String(i.sku), cols[0], y);
+    doc.text(String(i.description).slice(0,32), cols[1], y);
+    doc.text(String(i.category||"—").slice(0,16), cols[2], y);
+    doc.text(String(i.locator), cols[3], y);
+    doc.text(String(i.qty), cols[4], y);
+    doc.text(`P${i.unitValue}`, cols[5], y);
+    y += 6;
+  });
+  doc.save(`inventory-export-${new Date().toISOString().slice(0,10)}.pdf`);
+  showToast(`Exported ${items.length} SKU(s) to PDF`, "ok");
+}
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(",").map(h => h.trim().toLowerCase());
+  const idx = (name) => header.indexOf(name);
+  const rows = [];
+  for (let li = 1; li < lines.length; li++) {
+    const cells = lines[li].match(/(".*?"|[^,]+)(?=,|$)/g) || [];
+    const clean = cells.map(c => c.trim().replace(/^"|"$/g,"").replace(/""/g,'"'));
+    const sku = clean[idx("sku")];
+    if (!sku) continue;
+    rows.push({
+      sku,
+      description: clean[idx("description")] || "",
+      category: idx("category")>-1 ? (clean[idx("category")]||"") : "",
+      locator: clean[idx("locator")] || "",
+      qty: parseInt(clean[idx("qty")],10) || 0,
+      unitValue: parseFloat(clean[idx("unitvalue")]) || 0,
+      reorder: parseInt(clean[idx("reorder")],10) || 0,
+    });
+  }
+  return rows;
+}
+function importCSVFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const rows = parseCSV(e.target.result);
+    if (rows.length === 0) { showToast("No valid rows found in that CSV", "danger"); return; }
+    let added = 0, updated = 0;
+    rows.forEach(r => {
+      const existing = state.inventory.find(i => i.sku === r.sku);
+      if (existing) {
+        Object.assign(existing, r, { category: r.category || existing.category });
+        updated++;
+      } else {
+        if (r.category && !state.categories.includes(r.category)) state.categories.push(r.category);
+        state.inventory.push(r);
+        added++;
+      }
+    });
+    showToast(`Import complete — ${added} added, ${updated} updated`, "ok");
+    render();
+  };
+  reader.readAsText(file);
+}
+
+/* Admin: add / edit / delete / reset */
+function openEditItem(sku) {
+  state.editItem = sku ? { ...state.inventory.find(i => i.sku === sku) } : { sku:"", description:"", category: state.categories[0]||"", locator: state.locators[0]?.code||"", qty:0, unitValue:0, reorder:0, _isNew:true };
+  render();
+}
+function renderEditItemModal() {
+  const it = state.editItem;
+  const isNew = it._isNew;
+  return `
+    <div class="modal-backdrop" data-action="close-edit-item">
+      <div class="modal" data-stop="1">
+        <h3>${isNew ? "Add inventory item" : "Edit item"}</h3>
+        <p class="hint">${isNew ? "Create a new SKU record." : `Editing ${esc(it.sku)}`}</p>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <label class="field"><span class="lbl">SKU</span><input id="ei-sku" value="${esc(it.sku)}" ${isNew?'':'disabled'} placeholder="SKU-1009" /></label>
+          <label class="field"><span class="lbl">Description</span><input id="ei-desc" value="${esc(it.description)}" /></label>
+          <label class="field"><span class="lbl">Category</span>
+            <select id="ei-cat">${state.categories.map(c => `<option value="${esc(c)}" ${it.category===c?'selected':''}>${esc(c)}</option>`).join("")}</select>
+          </label>
+          <label class="field"><span class="lbl">Locator</span>
+            <select id="ei-loc">${state.locators.map(l => `<option value="${l.code}" ${it.locator===l.code?'selected':''}>${l.code}</option>`).join("")}</select>
+          </label>
+          <div class="grid grid-3">
+            <label class="field"><span class="lbl">Qty on hand</span><input id="ei-qty" type="number" min="0" value="${it.qty}" /></label>
+            <label class="field"><span class="lbl">Unit value (₱)</span><input id="ei-value" type="number" min="0" step="0.01" value="${it.unitValue}" /></label>
+            <label class="field"><span class="lbl">Reorder level</span><input id="ei-reorder" type="number" min="0" value="${it.reorder}" /></label>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
+          <button class="btn btn-ghost" data-action="close-edit-item">Cancel</button>
+          <button class="btn btn-primary" data-action="save-edit-item">${isNew ? "Add item" : "Save changes"}</button>
+        </div>
+      </div>
+    </div>`;
+}
+function saveEditItem() {
+  const it = state.editItem;
+  const sku = document.getElementById("ei-sku").value.trim();
+  if (!sku) return showToast("SKU is required", "danger");
+  const payload = {
+    sku,
+    description: document.getElementById("ei-desc").value.trim(),
+    category: document.getElementById("ei-cat").value,
+    locator: document.getElementById("ei-loc").value,
+    qty: parseInt(document.getElementById("ei-qty").value,10) || 0,
+    unitValue: parseFloat(document.getElementById("ei-value").value) || 0,
+    reorder: parseInt(document.getElementById("ei-reorder").value,10) || 0,
+  };
+  if (it._isNew) {
+    if (state.inventory.some(i => i.sku === sku)) return showToast("That SKU already exists", "danger");
+    state.inventory.push(payload);
+    showToast("Item added", "ok");
+  } else {
+    Object.assign(state.inventory.find(i => i.sku === it.sku), payload);
+    showToast("Item updated", "ok");
+  }
+  state.editItem = null;
+  render();
+}
+
+function renderConfirmModal() {
+  const c = state.confirm;
+  return `
+    <div class="modal-backdrop" data-action="confirm-no">
+      <div class="modal" style="max-width:380px;" data-stop="1">
+        <h3>${esc(c.title)}</h3>
+        <p class="hint">${esc(c.message)}</p>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;">
+          <button class="btn btn-ghost" data-action="confirm-no">Cancel</button>
+          <button class="btn btn-danger" data-action="confirm-yes">${esc(c.confirmLabel||"Confirm")}</button>
+        </div>
+      </div>
+    </div>`;
+}
+function askConfirm(title, message, type, payload, confirmLabel) {
+  state.confirm = { title, message, type, payload, confirmLabel };
+  render();
+}
+function runConfirmedAction() {
+  const c = state.confirm;
+  if (!c) return;
+  if (c.type === "reset-qty") {
+    state.inventory.forEach(i => i.qty = 0);
+    showToast("All quantities reset to 0", "ok");
+  } else if (c.type === "delete-item") {
+    state.inventory = state.inventory.filter(i => i.sku !== c.payload);
+    showToast("Item deleted", "ok");
+  } else if (c.type === "delete-locator") {
+    state.locators = state.locators.filter(l => l.code !== c.payload);
+    showToast("Locator removed", "ok");
+  } else if (c.type === "delete-user") {
+    state.users = state.users.filter(u => u.id !== c.payload);
+    showToast("User removed", "ok");
+  } else if (c.type === "delete-category") {
+    state.categories = state.categories.filter(cat => cat !== c.payload);
+    showToast("Category removed", "ok");
+  }
+  state.confirm = null;
+  render();
+}
+
+/* ---------------------------------------------------------
+   STOCK IN / OUT
+--------------------------------------------------------- */
+function renderStock() {
+  const type = state.stockType;
+  const bulk = state.bulk;
+  const skuOptions = state.inventory.map(i => `<option value="${i.sku}">`).join("");
+
+  return `
+    <div style="margin-bottom:20px;">
+      <h1 class="page-title">Stock In / Out</h1>
+      <p class="page-sub">Log receipts from suppliers or releases to the selling area. Switch to bulk mode for multiple SKUs at once.</p>
+    </div>
+
+    <div class="toolbar" style="margin-bottom:16px;">
+      <div class="stockin-tabs">
+        <button class="stockin-tab ${type==='IN'?'active-in':''}" data-action="set-stock-type" data-type="IN">${ICONS.down} Stock In</button>
+        <button class="stockin-tab ${type==='OUT'?'active-out':''}" data-action="set-stock-type" data-type="OUT">${ICONS.up} Stock Out</button>
+      </div>
+      <label class="checkbox-row" style="margin-left:auto;">
+        <input type="checkbox" id="bulk-toggle" ${bulk?'checked':''} />
+        Bulk mode
+      </label>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="row-head ${bulk?'':'single'}">
+        <div>SKU</div><div>Description</div><div>Qty</div><div>Notes</div>${bulk?'<div></div>':''}
+      </div>
+      <div id="rows-wrap">
+        ${state.rows.map((row, idx) => renderStockRow(row, idx, bulk)).join("")}
+      </div>
+      <datalist id="sku-options">${skuOptions}</datalist>
+      ${bulk ? `<button class="btn btn-ghost" style="margin-top:8px;color:var(--accent);border:none;padding-left:2px;" data-action="add-row">${ICONS.plus} Add another row</button>` : ""}
+      <hr class="sep" />
+      <div style="display:flex;justify-content:flex-end;">
+        <button class="btn btn-primary" data-action="submit-stock">
+          ${type==='IN'?ICONS.down:ICONS.up} Confirm stock ${type==='IN'?'in':'out'}
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Recent entries</h2>
+      <div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;">
+        ${state.transactions.slice(0,8).map(t => `
+          <div style="display:flex;align-items:center;justify-content:space-between;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:8px 12px;font-size:13px;gap:8px;">
+            <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+              <span style="color:${t.type==='IN'?'var(--ok)':'var(--accent)'};flex-shrink:0;">${t.type==='IN'?ICONS.down:ICONS.up}</span>
+              <div style="min-width:0;">
+                <div class="mono" style="font-size:12px;">${esc(t.sku)} · ${t.qty} pcs</div>
+                <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.notes)} — ${esc(t.user)}</div>
+              </div>
+            </div>
+            <span style="font-size:11px;color:var(--dim);flex-shrink:0;">${t.timestamp}</span>
+          </div>`).join("")}
+      </div>
+    </div>
+  `;
+}
+function renderStockRow(row, idx, bulk) {
+  return `
+    <div class="row-grid ${bulk?'':'single'}" data-row="${idx}">
+      <input list="sku-options" class="row-sku" placeholder="SKU-1001" value="${esc(row.sku)}" data-idx="${idx}" data-field="sku" />
+      <input class="row-desc" placeholder="Auto-filled from SKU" value="${esc(row.description)}" data-idx="${idx}" data-field="description" style="opacity:.85;" />
+      <input type="number" min="0" class="row-qty" placeholder="0" value="${esc(row.qty)}" data-idx="${idx}" data-field="qty" />
+      <input class="row-notes" placeholder="Optional note" value="${esc(row.notes)}" data-idx="${idx}" data-field="notes" />
+      ${bulk ? `<button class="icon-btn" data-action="remove-row" data-idx="${idx}">${ICONS.trash}</button>` : ""}
+    </div>`;
+}
+
+function submitStock() {
+  const validRows = state.rows.filter(r => r.sku && r.qty);
+  if (validRows.length === 0) return showToast("Add at least one SKU with quantity", "danger");
+
+  const type = state.stockType;
+  let newTx = [];
+  let hadError = false;
+
+  validRows.forEach(r => {
+    const item = state.inventory.find(i => i.sku === r.sku);
+    if (!item) { hadError = true; return; }
+    const qty = parseInt(r.qty, 10);
+    if (!qty || qty <= 0) { hadError = true; return; }
+    if (type === "OUT" && qty > item.qty) {
+      showToast(`${r.sku}: not enough stock on hand (${item.qty} available)`, "danger");
+      hadError = true; return;
+    }
+    item.qty = type === "IN" ? item.qty + qty : item.qty - qty;
+    newTx.push({
+      id: "T-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
+      type, sku: r.sku, description: item.description, qty,
+      locator: item.locator, notes: r.notes || "—", user: state.session.name,
+      value: qty * item.unitValue, timestamp: fmt(0),
+    });
+  });
+
+  if (newTx.length === 0) {
+    if (!hadError) showToast("No valid SKUs found in inventory", "danger");
+    return;
+  }
+  state.transactions.unshift(...newTx);
+  state.rows = [{ sku: "", description: "", qty: "", notes: "" }];
+  showToast(`${newTx.length} stock ${type==='IN'?'in':'out'} entr${newTx.length>1?'ies':'y'} recorded`, "ok");
+}
+
+/* ---------------------------------------------------------
+   LOCATORS & CATEGORIES ADMIN
+--------------------------------------------------------- */
+function renderLocators() {
+  const f = state._locForm || { code: "", zone: "", description: "" };
+  return `
+    <div style="margin-bottom:20px;">
+      <h1 class="page-title">Locators & categories</h1>
+      <p class="page-sub">Define bin/rack codes and the product categories used to organize inventory value.</p>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h2 style="font-size:13px;font-weight:600;margin:0 0 12px;">Add a locator</h2>
+      <div class="grid grid-4">
+        <label class="field"><span class="lbl">Locator code</span><input id="loc-code" placeholder="A1-R1-S1" value="${esc(f.code)}" /></label>
+        <label class="field"><span class="lbl">Zone</span><input id="loc-zone" placeholder="Zone A" value="${esc(f.zone)}" /></label>
+        <label class="field"><span class="lbl">Description</span><input id="loc-desc" placeholder="Aisle, rack, shelf" value="${esc(f.description)}" /></label>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn btn-primary" style="width:100%;" data-action="add-locator">${ICONS.plus} Add locator</button>
+        </div>
+      </div>
+    </div>
+    <div class="grid grid-3" style="margin-bottom:16px;">
+      ${state.locators.map(l => `
+        <div class="card" style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+          <div style="min-width:0;">
+            <span class="tag">${esc(l.code)}</span>
+            <div style="font-size:12px;color:var(--muted);margin-top:8px;">${esc(l.zone)}</div>
+            <div style="font-size:12px;color:var(--dim);">${esc(l.description)}</div>
+          </div>
+          <button class="icon-btn" data-action="remove-locator" data-code="${esc(l.code)}">${ICONS.trash}</button>
+        </div>`).join("")}
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:13px;font-weight:600;margin:0 0 12px;">Categories</h2>
+      <div class="toolbar" style="margin-bottom:14px;">
+        <input id="cat-new" placeholder="e.g. Electrical Supplies" style="max-width:280px;" />
+        <button class="btn btn-primary btn-sm" data-action="add-category">${ICONS.plus} Add category</button>
+      </div>
+      <div class="toolbar">
+        ${state.categories.map(c => `
+          <span class="chip">${ICONS.tag} ${esc(c)}
+            <button class="icon-btn" style="padding:0;color:var(--dim);" data-action="remove-category" data-cat="${esc(c)}">${ICONS.x}</button>
+          </span>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+/* ---------------------------------------------------------
+   USERS ADMIN
+--------------------------------------------------------- */
+function renderUsers() {
+  return `
+    <div style="margin-bottom:20px;">
+      <h1 class="page-title">Users</h1>
+      <p class="page-sub">See who's online right now, and manage access for every account.</p>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Last login</th><th style="text-align:right;">Actions</th></tr></thead>
+          <tbody>
+            ${state.users.map(u => `
+              <tr>
+                <td>${esc(u.name)}${u.id===state.session.id?' <span style="font-size:10px;color:var(--dim);">(you)</span>':''}</td>
+                <td class="mono" style="font-size:11.5px;color:var(--muted);">${esc(u.username)}</td>
+                <td>
+                  <select data-action="change-role" data-id="${u.id}" style="width:auto;padding:5px 8px;font-size:11.5px;">
+                    ${ROLES.map(r => `<option value="${r}" ${u.role===r?'selected':''}>${r}</option>`).join("")}
+                  </select>
+                </td>
+                <td>${u.status==='online' ? `<span class="tag tag-ok">${ICONS.wifi} Online</span>` : `<span class="tag">${ICONS.wifiOff} Offline</span>`}</td>
+                <td style="font-size:11.5px;color:var(--muted);">${u.lastLogin}</td>
+                <td style="text-align:right;"><button class="icon-btn" data-action="remove-user" data-id="${u.id}">${ICONS.trash}</button></td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+/* ---------------------------------------------------------
+   TRANSACTION LOG
+--------------------------------------------------------- */
+function renderTransactions() {
+  const tab = state.txTab;
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(state.transactions.length / pageSize));
+  if (state.txPage > totalPages) state.txPage = totalPages;
+  const start = (state.txPage - 1) * pageSize;
+  const pageTx = state.transactions.slice(start, start + pageSize);
+
+  return `
+    <div style="margin-bottom:20px;">
+      <h1 class="page-title">Transaction log</h1>
+      <p class="page-sub">Full audit trail of stock movement and account activity, across every user.</p>
+    </div>
+    <div class="stockin-tabs" style="margin-bottom:16px;">
+      <button class="stockin-tab ${tab==='stock'?'active-in':''}" data-action="set-tx-tab" data-tab="stock">Stock movements</button>
+      <button class="stockin-tab ${tab==='access'?'active-in':''}" data-action="set-tx-tab" data-tab="access">Sign-in / sign-out</button>
+    </div>
+    ${tab === "stock" ? `
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Ref</th><th>Type</th><th>SKU</th><th>Qty</th><th>Locator</th><th>Value</th><th>By</th><th>Notes</th><th>Timestamp</th></tr></thead>
+            <tbody>
+              ${pageTx.map(t => `
+                <tr>
+                  <td class="mono" style="font-size:11px;color:var(--dim);">${t.id}</td>
+                  <td>${t.type==='IN'?`<span class="tag tag-ok">IN</span>`:`<span class="tag tag-accent">OUT</span>`}</td>
+                  <td class="mono" style="font-size:12px;">${esc(t.sku)}</td>
+                  <td>${t.qty}</td>
+                  <td><span class="tag">${esc(t.locator)}</span></td>
+                  <td class="mono" style="font-size:12px;">₱${t.value.toLocaleString()}</td>
+                  <td style="color:#B4BAC5;">${esc(t.user)}</td>
+                  <td style="font-size:12px;color:var(--muted);">${esc(t.notes)}</td>
+                  <td style="font-size:11px;color:var(--dim);">${t.timestamp}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="pager">
+        <span>${state.transactions.length} entries · page ${state.txPage} of ${totalPages}</span>
+        <button class="btn btn-ghost btn-sm" data-action="tx-prev" ${state.txPage<=1?'disabled':''}>‹ Prev</button>
+        <button class="btn btn-ghost btn-sm" data-action="tx-next" ${state.txPage>=totalPages?'disabled':''}>Next ›</button>
+      </div>` : `
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>User</th><th>Role</th><th>Action</th><th>Timestamp</th></tr></thead>
+            <tbody>
+              ${state.loginLogs.map(l => `
+                <tr>
+                  <td>${esc(l.user)}</td>
+                  <td style="color:var(--muted);">${esc(l.role)}</td>
+                  <td>${(l.action.includes("in")||l.action.includes("created")) ?
+                    `<span style="display:inline-flex;align-items:center;gap:5px;color:var(--ok);font-size:12px;">${ICONS.check} ${esc(l.action)}</span>` :
+                    `<span style="display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:12px;">${ICONS.logout} ${esc(l.action)}</span>`}</td>
+                  <td style="font-size:11px;color:var(--dim);">${l.timestamp}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>`}
+  `;
+}
+
+/* ---------------------------------------------------------
+   PROFILE
+--------------------------------------------------------- */
+function renderProfile() {
+  const s = state.session;
+  return `
+    <div style="max-width:480px;">
+      <div style="margin-bottom:20px;">
+        <h1 class="page-title">Your profile</h1>
+        <p class="page-sub">Update your account details.</p>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px;">
+          <div class="avatar" style="background:${roleColor(s.role)}22;color:${roleColor(s.role)};">${initials(s.name)}</div>
+          <div>
+            <div style="font-size:13.5px;font-weight:500;">${esc(s.name)}</div>
+            <div style="font-size:12px;color:var(--muted);">${esc(s.role)}</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <label class="field"><span class="lbl">Full name</span><input id="pf-name" value="${esc(s.name)}" /></label>
+          <label class="field"><span class="lbl">Username</span><input id="pf-username" value="${esc(s.username)}" /></label>
+          <label class="field"><span class="lbl">Email</span><input id="pf-email" value="${esc(s.email)}" /></label>
+          <label class="field"><span class="lbl">New password</span><input type="password" placeholder="Leave blank to keep current password" /></label>
+          <div style="display:flex;justify-content:flex-end;padding-top:6px;">
+            <button class="btn btn-primary" data-action="save-profile">Save changes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ---------------------------------------------------------
+   EVENT HANDLING
+--------------------------------------------------------- */
+function attachHandlers() {
+  const app = document.getElementById("app");
+
+  app.onclick = (e) => {
+    // clicking inside a modal shouldn't bubble to its backdrop close handler
+    if (e.target.closest("[data-stop]") && e.target.closest("[data-action='close-edit-item'],[data-action='confirm-no']") === null) {
+      // continue normal handling below (buttons inside still work)
+    }
+    const el = e.target.closest("[data-action]");
+    if (!el) return;
+    // ignore backdrop click if the actual click landed on the modal box
+    if ((el.dataset.action === "close-edit-item" || el.dataset.action === "confirm-no") && e.target.closest(".modal")) return;
+    const action = el.dataset.action;
+
+    if (action === "set-auth-mode") { state.authMode = el.dataset.mode; render(); }
+    else if (action === "set-signup-role") { state._signupRole = el.dataset.role; render(); }
+    else if (action === "do-login") {
+      const val = document.getElementById("login-username").value.trim();
+      doLogin(val);
+    }
+    else if (action === "do-signup") {
+      const payload = {
+        name: document.getElementById("su-name").value.trim(),
+        username: document.getElementById("su-username").value.trim(),
+        email: document.getElementById("su-email").value.trim(),
+        role: state._signupRole || "Stock Clerk",
+      };
+      if (payload.name && payload.username && payload.email) doSignup(payload);
+      else showToast("Please complete all fields", "danger");
+    }
+    else if (action === "do-logout") doLogout();
+    else if (action === "set-view") { state.view = el.dataset.view; render(); }
+    else if (action === "set-stock-type") { state.stockType = el.dataset.type; render(); }
+    else if (action === "add-row") { state.rows.push({ sku:"", description:"", qty:"", notes:"" }); render(); }
+    else if (action === "remove-row") {
+      const idx = +el.dataset.idx;
+      state.rows.splice(idx, 1);
+      if (state.rows.length === 0) state.rows.push({ sku:"", description:"", qty:"", notes:"" });
+      render();
+    }
+    else if (action === "submit-stock") submitStock();
+    else if (action === "add-locator") {
+      const f = state._locForm || {};
+      if (!f.code) { showToast("Locator code is required", "danger"); return; }
+      if (state.locators.some(l => l.code === f.code)) { showToast("Locator code already exists", "danger"); return; }
+      state.locators.push({ code: f.code, zone: f.zone||"", description: f.description||"" });
+      state._locForm = { code:"", zone:"", description:"" };
+      showToast("Locator added", "ok");
+    }
+    else if (action === "remove-locator") {
+      askConfirm("Remove locator?", `This deletes locator ${el.dataset.code}. Items already assigned to it will keep the code as a label.`, "delete-locator", el.dataset.code, "Remove");
+    }
+    else if (action === "add-category") {
+      const input = document.getElementById("cat-new");
+      const val = input.value.trim();
+      if (!val) { showToast("Enter a category name", "danger"); return; }
+      if (state.categories.includes(val)) { showToast("That category already exists", "danger"); return; }
+      state.categories.push(val);
+      showToast("Category added", "ok");
+      render();
+    }
+    else if (action === "remove-category") {
+      askConfirm("Remove category?", `SKUs currently under "${el.dataset.cat}" will keep the label until reassigned.`, "delete-category", el.dataset.cat, "Remove");
+    }
+    else if (action === "remove-user") {
+      if (el.dataset.id === state.session.id) { showToast("You can't delete your own account while signed in", "danger"); return; }
+      askConfirm("Remove user?", "This account will lose access immediately.", "delete-user", el.dataset.id, "Remove");
+    }
+    else if (action === "save-profile") {
+      state.session.name = document.getElementById("pf-name").value.trim();
+      state.session.username = document.getElementById("pf-username").value.trim();
+      state.session.email = document.getElementById("pf-email").value.trim();
+      const u = state.users.find(u => u.id === state.session.id);
+      if (u) Object.assign(u, { name: state.session.name, username: state.session.username, email: state.session.email });
+      showToast("Profile updated", "ok");
+      render();
+    }
+    else if (action === "set-tx-tab") { state.txTab = el.dataset.tab; state.txPage = 1; render(); }
+    else if (action === "tx-prev") { state.txPage = Math.max(1, state.txPage-1); render(); }
+    else if (action === "tx-next") { state.txPage += 1; render(); }
+    else if (action === "lookup-prev") { state.lookupPage = Math.max(1, state.lookupPage-1); updateLookupResults(); }
+    else if (action === "lookup-next") { state.lookupPage += 1; updateLookupResults(); }
+    else if (action === "toggle-team-panel") {
+      state.teamPanelOpen = !state.teamPanelOpen;
+      if (state.teamPanelOpen && !state._notifiedRetention) {
+        state._notifiedRetention = true;
+        showToast("Heads up: direct messages auto-delete after 3 months.", "ok");
+      }
+      render();
+    }
+    else if (action === "close-team-panel") { state.teamPanelOpen = false; state.chatWith = null; render(); }
+    else if (action === "open-chat") { state.chatWith = el.dataset.id; render(); }
+    else if (action === "back-to-team-list") { state.chatWith = null; render(); }
+    else if (action === "send-message") {
+      const input = document.getElementById("chat-input");
+      const text = input.value.trim();
+      if (!text) return;
+      state.messages.push({ id: "m"+Date.now(), from: state.session.id, to: state.chatWith, text, timestamp: fmt(0) });
+      render();
+    }
+    else if (action === "trigger-import") document.getElementById("import-file").click();
+    else if (action === "export-csv") exportCSV();
+    else if (action === "export-pdf") exportPDF();
+    else if (action === "open-add-item") openEditItem(null);
+    else if (action === "edit-item") openEditItem(el.dataset.sku);
+    else if (action === "delete-item") askConfirm("Delete this SKU?", `${el.dataset.sku} will be permanently removed from inventory.`, "delete-item", el.dataset.sku, "Delete");
+    else if (action === "reset-qty") askConfirm("Reset all quantities?", "Every SKU's on-hand quantity will be set to 0. This can't be undone from here.", "reset-qty", null, "Reset all");
+    else if (action === "close-edit-item") { state.editItem = null; render(); }
+    else if (action === "save-edit-item") saveEditItem();
+    else if (action === "confirm-yes") runConfirmedAction();
+    else if (action === "confirm-no") { state.confirm = null; render(); }
+  };
+
+  app.onchange = (e) => {
+    if (e.target.id === "bulk-toggle") { state.bulk = e.target.checked; render(); }
+    else if (e.target.id === "lookup-loc") { state.lookupLoc = e.target.value; state.lookupPage = 1; updateLookupResults(); }
+    else if (e.target.id === "lookup-cat") { state.lookupCat = e.target.value; state.lookupPage = 1; updateLookupResults(); }
+    else if (e.target.id === "import-file") {
+      if (e.target.files && e.target.files[0]) importCSVFile(e.target.files[0]);
+      e.target.value = "";
+    }
+    else if (e.target.dataset.action === "change-role") {
+      const u = state.users.find(u => u.id === e.target.dataset.id);
+      if (u) { u.role = e.target.value; showToast("Access level updated", "ok"); }
+    }
+  };
+
+  app.oninput = (e) => {
+    if (e.target.id === "lookup-q") { state.lookupQ = e.target.value; state.lookupPage = 1; updateLookupResults(); }
+    else if (e.target.id === "loc-code" || e.target.id === "loc-zone" || e.target.id === "loc-desc") {
+      state._locForm = state._locForm || { code:"", zone:"", description:"" };
+      if (e.target.id === "loc-code") state._locForm.code = e.target.value;
+      if (e.target.id === "loc-zone") state._locForm.zone = e.target.value;
+      if (e.target.id === "loc-desc") state._locForm.description = e.target.value;
+    }
+    else if (e.target.classList.contains("row-sku") || e.target.classList.contains("row-desc") || e.target.classList.contains("row-qty") || e.target.classList.contains("row-notes")) {
+      const idx = +e.target.dataset.idx;
+      const field = e.target.dataset.field;
+      state.rows[idx][field] = e.target.value;
+      if (field === "sku") {
+        const item = state.inventory.find(i => i.sku === e.target.value);
+        if (item) { state.rows[idx].description = item.description; render(); refocus(`.row-sku[data-idx="${idx}"]`, true); }
+      }
+    }
+  };
+
+  app.onkeydown = (e) => {
+    if (e.key === "Enter" && e.target.id === "chat-input") {
+      e.preventDefault();
+      document.querySelector('[data-action="send-message"]')?.click();
+    }
+  };
+}
+
+function refocus(idOrSelector, isSelector) {
+  requestAnimationFrame(() => {
+    const el = isSelector ? document.querySelector(idOrSelector) : document.getElementById(idOrSelector);
+    if (el) { el.focus(); const v = el.value; el.value=""; el.value=v; }
+  });
+}
+
+render();
+</script>
+</body>
+</html>
