@@ -17,14 +17,29 @@
     --ok:#4DD9C7; --ok-dk:#12312C; --ok-bd:#1E4A42;
     --danger:#FF6B6F; --danger-dk:#2A1416; --danger-bd:#5C2226;
     --violet:#9E8CFF; --violet-dk:#251F3D; --violet-bd:#3C3466;
+    --on-accent:#1C1017; --overlay:rgba(6,8,11,.55); --overlay-2:rgba(6,8,11,.6);
+    --scrollbar:#2A2F3A; --nav-text:#B4BAC5; --nav-hover-bg:#1F2430; --tag-bg:#2A2F3A; --tag-dot-bg:#0F1115;
+    --row-hover:#20242E; --sidebar-shadow:rgba(0,0,0,.4);
     --sidebar-w:64px; --sidebar-w-open:236px;
+  }
+  /* Warm, low-glare light theme — intentionally not pure white to ease long viewing sessions */
+  [data-theme="light"]{
+    --bg:#EFEAE0; --panel:#F8F5EF; --panel-2:#E7E1D3; --field:#FBF9F4;
+    --line:#DCD3C0; --line-2:#E4DCC9; --text:#2E2B23; --muted:#736B5A; --dim:#A79E88;
+    --accent:#A85114; --accent-dk:#FCE6CC; --accent-bd:#F0C495;
+    --ok:#137A6B; --ok-dk:#DCF2EC; --ok-bd:#B7E1D6;
+    --danger:#B23539; --danger-dk:#FBE6E6; --danger-bd:#EFC0C1;
+    --violet:#5A3FCB; --violet-dk:#EAE4FA; --violet-bd:#D1C4F2;
+    --on-accent:#FFFFFF; --overlay:rgba(40,34,22,.35); --overlay-2:rgba(40,34,22,.4);
+    --scrollbar:#D8CFBB; --nav-text:#5B5546; --nav-hover-bg:#E4DCC9; --tag-bg:#EDE6D6; --tag-dot-bg:#F8F5EF;
+    --row-hover:#EDE6D6; --sidebar-shadow:rgba(60,50,30,.12);
   }
   *{box-sizing:border-box;}
   html,body{height:100%;}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;transition:background .15s,color .15s;}
   .mono{font-family:'IBM Plex Mono',monospace;}
   ::-webkit-scrollbar{width:8px;height:8px;}
-  ::-webkit-scrollbar-thumb{background:#2A2F3A;border-radius:4px;}
+  ::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:4px;}
   input,select,button,textarea{font-family:inherit;}
   :focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
   input,select,textarea{
@@ -32,7 +47,7 @@
     padding:9px 12px; font-size:13.5px; color:var(--text); outline:none; width:100%; min-width:0;
   }
   textarea{resize:vertical;font-family:inherit;}
-  input::placeholder,textarea::placeholder{color:#5A6272;}
+  input::placeholder,textarea::placeholder{color:var(--dim);}
   input:focus,select:focus,textarea:focus{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent);}
   input:disabled{opacity:.55;cursor:not-allowed;}
   label.field{display:flex;flex-direction:column;gap:5px;font-size:13px;min-width:0;}
@@ -42,27 +57,28 @@
     font-size:13.5px;font-weight:500;padding:9px 15px;border-radius:3px;
     display:inline-flex;align-items:center;gap:7px;justify-content:center;transition:.15s;white-space:nowrap;
   }
-  .btn-primary{background:var(--accent);color:#1C1017;}
-  .btn-primary:hover{background:#FF9D5C;}
+  .btn-primary{background:var(--accent);color:var(--on-accent);}
+  .btn-primary:hover{filter:brightness(1.1);}
   .btn-primary:disabled{opacity:.4;cursor:not-allowed;}
-  .btn-ghost{background:transparent;color:var(--text);border:1px solid #3A4150;}
+  .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--line);}
   .btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
   .btn-danger{background:transparent;color:var(--danger);border:1px solid var(--danger-bd);}
   .btn-danger:hover{background:var(--danger-dk);}
   .btn-sm{padding:6px 11px;font-size:12.5px;}
-  .icon-btn{background:none;color:var(--dim);padding:5px;display:inline-flex;border-radius:3px;}
+  .icon-btn{background:none;color:var(--dim);padding:5px;display:inline-flex;border-radius:3px;transition:.15s;}
   .icon-btn:hover{color:var(--danger);background:var(--danger-dk);}
   .icon-btn.edit:hover{color:var(--accent);background:var(--accent-dk);}
   .icon-btn.msg:hover{color:var(--ok);background:var(--ok-dk);}
+  .icon-btn.theme:hover{color:var(--accent);background:var(--accent-dk);}
 
   .tag{
     position:relative;display:inline-flex;align-items:center;gap:5px;
     font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.02em;
     padding:4px 9px 4px 12px;border:1px solid var(--line);border-radius:2px;
-    background:#2A2F3A;color:var(--text);white-space:nowrap;
+    background:var(--tag-bg);color:var(--text);white-space:nowrap;
   }
   .tag::before{content:"";position:absolute;left:-3px;top:50%;transform:translateY(-50%);
-    width:5px;height:5px;border-radius:50%;background:#0F1115;border:1px solid currentColor;}
+    width:5px;height:5px;border-radius:50%;background:var(--tag-dot-bg);border:1px solid currentColor;}
   .tag-accent{background:var(--accent-dk);color:var(--accent);border-color:var(--accent-bd);}
   .tag-ok{background:var(--ok-dk);color:var(--ok);border-color:var(--ok-bd);}
   .tag-danger{background:var(--danger-dk);color:var(--danger);border-color:var(--danger-bd);}
@@ -90,7 +106,7 @@
   .vtable-spacer{position:relative;}
   .vtable-rows{position:absolute;left:0;right:0;top:0;will-change:transform;}
   .vrow{display:grid;height:42px;border-bottom:1px solid var(--line-2);font-size:13.5px;}
-  .vrow:hover{background:#20242E;}
+  .vrow:hover{background:var(--row-hover);}
   .vrow > div{padding:0 14px;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .vtable-empty{padding:44px 20px;text-align:center;color:var(--dim);font-size:13px;}
 
@@ -102,17 +118,17 @@
     background:var(--panel-2);border-right:1px solid var(--line);
     display:flex;flex-direction:column;overflow:hidden;transition:width .18s ease;
   }
-  .sidebar:hover,.sidebar:focus-within{width:var(--sidebar-w-open);box-shadow:6px 0 28px rgba(0,0,0,.4);}
+  .sidebar:hover,.sidebar:focus-within{width:var(--sidebar-w-open);box-shadow:6px 0 28px var(--sidebar-shadow);}
   .hide-collapsed{opacity:0;max-width:0;overflow:hidden;white-space:nowrap;transition:opacity .12s ease,max-width .18s ease;}
   .sidebar:hover .hide-collapsed,.sidebar:focus-within .hide-collapsed{opacity:1;max-width:180px;}
   .brand{padding:18px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;}
-  .brand-mark{width:32px;height:32px;flex-shrink:0;border-radius:3px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#1C1017;}
+  .brand-mark{width:32px;height:32px;flex-shrink:0;border-radius:3px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:var(--on-accent);}
   .brand-name{font-size:13.5px;font-weight:600;letter-spacing:-.01em;}
   .brand-sub{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.14em;}
   .nav{flex:1;padding:14px 12px;display:flex;flex-direction:column;gap:3px;}
   .nav-item{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:3px;font-size:13.5px;
-    color:#B4BAC5;border:1px solid transparent;text-align:left;background:none;width:100%;}
-  .nav-item:hover{background:#1F2430;}
+    color:var(--nav-text);border:1px solid transparent;text-align:left;background:none;width:100%;}
+  .nav-item:hover{background:var(--nav-hover-bg);}
   .nav-item.active{background:var(--accent-dk);color:var(--accent);border-color:var(--accent-bd);}
   .nav-item svg{flex-shrink:0;}
   .sidebar-foot{padding:14px 12px;border-top:1px solid var(--line);}
@@ -128,7 +144,7 @@
   h1.page-title{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px;}
   p.page-sub{font-size:13.5px;color:var(--muted);margin:0;}
   .stripe{position:fixed;top:0;left:0;width:100%;height:6px;z-index:300;
-    background:repeating-linear-gradient(45deg,#FF8A3D 0,#FF8A3D 10px,#1C1017 10px,#1C1017 20px);}
+    background:repeating-linear-gradient(45deg,var(--accent) 0,var(--accent) 10px,var(--on-accent) 10px,var(--on-accent) 20px);}
 
   .grid{display:grid;gap:14px;}
   .grid-4{grid-template-columns:repeat(4,1fr);}
@@ -162,7 +178,7 @@
   .auth-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:26px;}
   .tabs{display:flex;gap:4px;background:var(--field);border-radius:3px;padding:4px;margin-bottom:22px;}
   .tab-btn{flex:1;padding:9px;font-size:13.5px;border-radius:3px;background:none;color:var(--muted);}
-  .tab-btn.active{background:var(--accent);color:#1C1017;font-weight:600;}
+  .tab-btn.active{background:var(--accent);color:var(--on-accent);font-weight:600;}
   .role-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
   .role-opt{padding:9px 6px;font-size:11.5px;border-radius:3px;border:1px solid var(--line);background:none;color:var(--muted);}
   .role-opt.active{border-color:var(--accent);background:var(--accent-dk);color:var(--accent);}
@@ -184,7 +200,7 @@
   .user-chip{display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:8px 12px;font-size:12.5px;}
   .role-pill{font-size:11px;font-weight:500;padding:5px 12px;border-radius:20px;border:1px solid;white-space:nowrap;}
 
-  .checkbox-row{display:flex;align-items:center;gap:8px;font-size:13.5px;color:#B4BAC5;cursor:pointer;user-select:none;}
+  .checkbox-row{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--nav-text);cursor:pointer;user-select:none;}
   .checkbox-row input{width:auto;accent-color:var(--accent);}
 
   .avatar{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px;flex-shrink:0;}
@@ -197,8 +213,13 @@
   .stack-avatars{display:flex;}
   .stack-avatars .avatar-sm{margin-left:-8px;border:2px solid var(--panel-2);}
   .stack-avatars .avatar-sm:first-child{margin-left:0;}
+  .unread-badge{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+    background:var(--danger);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;
+    border:2px solid var(--bg);line-height:1;}
+  .team-row-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--danger);color:#fff;
+    font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 
-  .backdrop{position:fixed;inset:0;background:rgba(6,8,11,.55);z-index:190;opacity:0;pointer-events:none;transition:opacity .18s;}
+  .backdrop{position:fixed;inset:0;background:var(--overlay);z-index:190;opacity:0;pointer-events:none;transition:opacity .18s;}
   .backdrop.open{opacity:1;pointer-events:auto;}
   .panel{position:fixed;top:0;right:0;bottom:0;width:360px;max-width:92vw;background:var(--panel-2);
     border-left:1px solid var(--line);z-index:200;transform:translateX(100%);transition:transform .2s ease;
@@ -217,13 +238,13 @@
   .chat-input-row{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line);flex-shrink:0;}
 
   /* modal */
-  .modal-backdrop{position:fixed;inset:0;background:rgba(6,8,11,.6);z-index:250;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .modal-backdrop{position:fixed;inset:0;background:var(--overlay-2);z-index:250;display:flex;align-items:center;justify-content:center;padding:20px;}
   .modal{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:22px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;}
   .modal h3{margin:0 0 4px;font-size:15px;font-weight:600;}
   .modal p.hint{margin:0 0 18px;font-size:12.5px;color:var(--muted);}
 
   .banner{display:flex;align-items:flex-start;gap:10px;padding:11px 14px;border-radius:4px;border:1px solid var(--violet-bd);
-    background:var(--violet-dk);color:#C9BFFF;font-size:12.5px;margin-bottom:16px;line-height:1.5;}
+    background:var(--violet-dk);color:var(--violet);font-size:12.5px;margin-bottom:16px;line-height:1.5;}
 
   /* barcode banner (Stock In/Out only) */
   .barcode-banner{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border:1px solid var(--accent-bd);
@@ -231,7 +252,7 @@
   .barcode-row{display:flex;gap:10px;margin-top:10px;}
   @media(max-width:560px){.barcode-row{flex-direction:column;}}
 
-  ::selection{background:var(--accent);color:#1C1017;}
+  ::selection{background:var(--accent);color:var(--on-accent);}
 </style>
 </head>
 <body>
@@ -261,6 +282,8 @@
    ICONS (inline SVG, stroke-based)
 --------------------------------------------------------- */
 const ICONS = {
+  sun: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`,
+  moon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>`,
   grid: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
   search: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>`,
   boxes: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 1 9 4.24V4.24l3 1.8v5.5L7 8.5V3.33l.97 1.09Z"/><path d="M12 6.5 7 3.5"/><path d="m12 6.5 5-3"/></svg>`,
@@ -300,15 +323,22 @@ const ICONS = {
 const ROLES = ["Admin", "Stock Clerk", "Selling Clerk"];
 const ADJUSTMENT_REASONS = ["Damaged", "Expired", "Stolen / Shrinkage", "Physical Count Correction", "Other"];
 
+function manilaDateKey(date) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
 function fmt(daysAgo = 0, h, m) {
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
-  if (h !== undefined) d.setHours(h, m ?? 0, 0, 0);
-  return d.toISOString().slice(0, 16).replace("T", " ");
+  const d = new Date(Date.now() - daysAgo * 86400000);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(d).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+  const hh = h !== undefined ? String(h).padStart(2, "0") : parts.hour;
+  const mm = h !== undefined ? String(m ?? 0).padStart(2, "0") : parts.minute;
+  return `${parts.year}-${parts.month}-${parts.day} ${hh}:${mm}`;
 }
 function dayKeyOf(str){ return str.slice(0,10); }
 function daysBetween(tsStr){
-  const then = new Date(tsStr.replace(" ","T"));
+  // Stored timestamps are Asia/Manila wall-clock time (fixed UTC+8, no DST).
+  const then = new Date(tsStr.replace(" ","T") + "+08:00");
   return (Date.now() - then.getTime()) / (1000*60*60*24);
 }
 
@@ -325,6 +355,7 @@ let _rtChannels = [];
 
 let state = {
   // No sample accounts — every account comes from Supabase Auth.
+  theme: (localStorage.getItem("depotos-theme") === "light") ? "light" : "dark",
   users: [],
   categories: [],
   locators: [],
@@ -373,8 +404,13 @@ function mapAdjRow(a) {
   return { id: a.id, sku: a.sku, description: a.description, reason: a.reason, delta: a.delta,
     qtyBefore: a.qty_before, qtyAfter: a.qty_after, notes: a.notes, user: a.user_name, timestamp: a.timestamp };
 }
+function syncSearchCache(item) {
+  item._skuLc = (item.sku||"").toLowerCase();
+  item._descLc = (item.description||"").toLowerCase();
+  return item;
+}
 function mapInvRow(i) {
-  return { sku: i.sku, description: i.description, category: i.category, locator: i.locator, qty: i.qty, unitValue: Number(i.unit_value), reorder: i.reorder };
+  return syncSearchCache({ sku: i.sku, description: i.description, category: i.category, locator: i.locator, qty: i.qty, unitValue: Number(i.unit_value), reorder: i.reorder });
 }
 function mapSkuLocRow(l) {
   return { sku: l.sku, locator: l.locator, qty: l.qty };
@@ -420,7 +456,7 @@ async function loadAllData() {
   state.transactions = (txRes.data || []).map(mapTxRow);
   state.adjustments = (adjRes.data || []).map(mapAdjRow);
   state.loginLogs = (logsRes.data || []).map(l => ({ user: l.user_name, role: l.role, action: l.action, timestamp: l.timestamp }));
-  state.messages = (msgRes.data || []).map(m => ({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp }));
+  state.messages = (msgRes.data || []).map(m => ({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp, read: !!m.read }));
 }
 
 function subscribeRealtime() {
@@ -434,7 +470,15 @@ function subscribeRealtime() {
       if (!state.session) return;
       if (m.from_id === state.session.id || m.to_id === state.session.id) {
         if (!state.messages.some(x => x.id === m.id)) {
-          state.messages.push({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp });
+          const incoming = m.to_id === state.session.id;
+          const viewingThisThread = incoming && state.teamPanelOpen && state.chatWith === m.from_id;
+          state.messages.push({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp, read: !incoming || viewingThisThread });
+          if (incoming && viewingThisThread) {
+            sb.from("messages").update({ read: true }).eq("id", m.id);
+          } else if (incoming) {
+            const sender = state.users.find(u => u.id === m.from_id);
+            showToast(`New message from ${sender ? sender.name : "a teammate"}`, "ok");
+          }
           render();
         }
       }
@@ -454,7 +498,10 @@ function showToast(msg, tone) {
 }
 
 function roleColor(role) {
-  return role === "Admin" ? "#FF8A3D" : role === "Stock Clerk" ? "#4DD9C7" : "#9E8CFF";
+  const light = state.theme === "light";
+  return role === "Admin" ? (light ? "#A85114" : "#FF8A3D")
+    : role === "Stock Clerk" ? (light ? "#137A6B" : "#4DD9C7")
+    : (light ? "#5A3FCB" : "#9E8CFF");
 }
 function initials(name){ return name.split(" ").map(n=>n[0]).join(""); }
 function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
@@ -556,6 +603,10 @@ async function doLogout() {
 }
 
 /* Restore session (or show sign-in) on page load. */
+function applyTheme() {
+  document.documentElement.setAttribute("data-theme", state.theme);
+}
+applyTheme();
 async function boot() {
   state.loading = true; state.connectionError = null;
   render();
@@ -697,7 +748,7 @@ function renderShell() {
     { key: "profile", label: "Profile", icon: ICONS.user },
   ];
   const onlineUsers = state.users.filter(u => u.status === "online");
-  const dateStr = new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const dateStr = new Date().toLocaleDateString("en-US", { timeZone: "Asia/Manila", weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
   return `
   <div class="shell">
@@ -724,11 +775,15 @@ function renderShell() {
       <header class="topbar">
         <div style="font-size:13.5px;color:var(--muted);">${dateStr}</div>
         <div style="display:flex;align-items:center;gap:10px;">
-          <button class="team-btn" data-action="toggle-team-panel" title="See who's online and message the team">
+          <button class="team-btn" data-action="toggle-team-panel" title="See who's online and message the team" style="position:relative;">
             <span class="stack-avatars">
               ${onlineUsers.slice(0,3).map(u => `<span class="avatar avatar-sm" style="background:${roleColor(u.role)}22;color:${roleColor(u.role)};">${initials(u.name)}</span>`).join("")}
             </span>
             <span style="font-size:12.5px;color:var(--text);">${onlineUsers.length} online</span>
+            ${totalUnreadCount() > 0 ? `<span class="unread-badge">${totalUnreadCount() > 9 ? '9+' : totalUnreadCount()}</span>` : ""}
+          </button>
+          <button class="icon-btn theme" data-action="toggle-theme" title="${state.theme==='light' ? 'Switch to dark mode' : 'Switch to light mode'}">
+            ${state.theme === "light" ? ICONS.moon : ICONS.sun}
           </button>
           <span class="role-pill" style="color:${roleColor(state.session.role)};border-color:${roleColor(state.session.role)}55;background:${roleColor(state.session.role)}14;">${esc(state.session.role)}</span>
         </div>
@@ -761,6 +816,18 @@ function renderView() {
 /* ---------------------------------------------------------
    TEAM PANEL + MESSAGING
 --------------------------------------------------------- */
+function unreadCountFrom(userId) {
+  return state.messages.filter(m => m.from === userId && m.to === state.session.id && !m.read).length;
+}
+function totalUnreadCount() {
+  return state.messages.filter(m => m.to === state.session.id && !m.read).length;
+}
+function markThreadRead(userId) {
+  const toMark = state.messages.filter(m => m.from === userId && m.to === state.session.id && !m.read);
+  if (toMark.length === 0) return;
+  toMark.forEach(m => m.read = true);
+  sb.from("messages").update({ read: true }).eq("from_id", userId).eq("to_id", state.session.id).eq("read", false);
+}
 function renderTeamPanel() {
   const open = state.teamPanelOpen;
   const chattingWith = state.chatWith ? state.users.find(u => u.id === state.chatWith) : null;
@@ -788,16 +855,20 @@ function renderTeamPanel() {
             </div>`).join("")}
       </div>`;
   } else {
-    body = state.users.map(u => `
-      <div class="team-row">
+    body = state.users.map(u => {
+      const unread = u.id !== state.session.id ? unreadCountFrom(u.id) : 0;
+      return `
+      <div class="team-row" ${unread>0 ? `data-action="open-chat" data-id="${u.id}" style="cursor:pointer;"` : ""}>
         <span class="dot" style="background:${u.status==='online'?'var(--ok)':'var(--dim)'};"></span>
         <span class="avatar avatar-sm" style="background:${roleColor(u.role)}22;color:${roleColor(u.role)};">${initials(u.name)}</span>
         <div style="flex:1;min-width:0;">
           <div style="font-size:13px;font-weight:500;">${esc(u.name)}${u.id===state.session.id?' <span style="color:var(--dim);font-size:11px;">(you)</span>':''}</div>
           <div style="font-size:11px;color:var(--muted);">${esc(u.role)} · ${u.status==='online'?'Online':'Offline'}</div>
         </div>
+        ${unread>0 ? `<span class="team-row-badge">${unread>9?'9+':unread}</span>` : ""}
         ${u.id!==state.session.id ? `<button class="icon-btn msg" data-action="open-chat" data-id="${u.id}" title="Message ${esc(u.name)}">${ICONS.send}</button>` : ""}
-      </div>`).join("");
+      </div>`;
+    }).join("");
   }
 
   return `
@@ -832,8 +903,8 @@ function computeCategoryStats() {
 function renderDashboard() {
   const now = new Date();
   const isThisMonth = (t) => {
-    const d = new Date(t.timestamp.replace(" ", "T"));
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    const nowKey = manilaDateKey(now);
+    return t.timestamp.slice(0,7) === nowKey.slice(0,7);
   };
   const mtdIn = state.transactions.filter(t => t.type === "IN" && isThisMonth(t));
   const mtdOut = state.transactions.filter(t => t.type === "OUT" && isThisMonth(t));
@@ -843,9 +914,9 @@ function renderDashboard() {
   const totalValue = state.inventory.reduce((s,i)=>s+i.qty*i.unitValue,0);
 
   const days = [...Array(7)].map((_, idx) => {
-    const d = new Date(); d.setDate(d.getDate() - (6-idx));
-    const label = d.toLocaleDateString(undefined, { weekday: "short" });
-    const key = d.toISOString().slice(0,10);
+    const d = new Date(Date.now() - (6-idx) * 86400000);
+    const label = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", weekday: "short" }).format(d);
+    const key = manilaDateKey(d);
     const inCount = state.transactions.filter(t => t.type==="IN" && dayKeyOf(t.timestamp)===key).length;
     const outCount = state.transactions.filter(t => t.type==="OUT" && dayKeyOf(t.timestamp)===key).length;
     return { label, inCount, outCount };
@@ -924,7 +995,7 @@ function renderDashboard() {
               perLocator.map(l => `
                 <tr>
                   <td><span class="tag">${esc(l.code)}</span></td>
-                  <td style="color:#B4BAC5;">${esc(l.zone)}</td>
+                  <td style="color:var(--nav-text);">${esc(l.zone)}</td>
                   <td>${l.skuCount}</td>
                   <td class="mono">₱${l.value.toLocaleString()}</td>
                 </tr>`).join("")}
@@ -976,7 +1047,7 @@ const LOOKUP_COLS_ADMIN = LOOKUP_COLS + " 90px";
 function filteredInventory() {
   const q = state.lookupQ.toLowerCase();
   return state.inventory.filter(i => {
-    const matchQ = !q || i.sku.toLowerCase().includes(q) || i.description.toLowerCase().includes(q);
+    const matchQ = !q || i._skuLc.includes(q) || i._descLc.includes(q);
     const matchLoc = state.lookupLoc === "all" || i.locator === state.lookupLoc;
     const matchCat = state.lookupCat === "all" || i.category === state.lookupCat;
     return matchQ && matchLoc && matchCat;
@@ -1061,9 +1132,6 @@ function renderInventoryRow(i, admin) {
 }
 
 function updateLookupResults() {
-  const el = document.getElementById("lookup-body");
-  if (!el) return;
-  el.innerHTML = renderLookupBody();
   mountLookupVirtualList();
 }
 function mountLookupVirtualList() {
@@ -1233,8 +1301,8 @@ async function importCSVFile(file) {
   let added = 0, updated = 0;
   rows.forEach(r => {
     const existing = state.inventory.find(i => i.sku === r.sku);
-    if (existing) { Object.assign(existing, r, { category: r.category || existing.category }); updated++; }
-    else { state.inventory.push(r); added++; }
+    if (existing) { Object.assign(existing, r, { category: r.category || existing.category }); syncSearchCache(existing); updated++; }
+    else { state.inventory.push(syncSearchCache(r)); added++; }
   });
   showToast(`Import complete — ${added} added, ${updated} updated${dupeCount ? ` (${dupeCount} duplicate SKU row(s) skipped, last one kept)` : ""}`, "ok");
   render();
@@ -1298,7 +1366,7 @@ async function saveEditItem() {
     if (state.inventory.some(i => i.sku === sku)) return showToast("That SKU already exists", "danger");
     const { error } = await sb.from("inventory").insert(dbPayload);
     if (error) { showToast(error.code === "23505" ? "That SKU already exists" : error.message, "danger"); return; }
-    state.inventory.push(payload);
+    state.inventory.push(syncSearchCache(payload));
     showToast("Item added", "ok");
   } else {
     const existing = state.inventory.find(i => i.sku === it.sku);
@@ -1306,6 +1374,7 @@ async function saveEditItem() {
     const { error } = await sb.from("inventory").update(dbPayload).eq("sku", it.sku);
     if (error) { showToast(error.message, "danger"); return; }
     Object.assign(existing, payload);
+    syncSearchCache(existing);
     if (payload.qty !== qtyBefore) {
       const adj = {
         id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
@@ -1385,35 +1454,49 @@ async function runConfirmedAction() {
 }
 
 /* ---------------------------------------------------------
-   BARCODE SCANNER + MANUAL SKU ENTRY — Stock In/Out ONLY
+   BARCODE SCANNER + MANUAL SKU ENTRY — Stock In/Out & Lookup
    -----------------------------------------------------------
    Physical scanners emulate a keyboard, firing digit keydown
    events in rapid succession (well under SCAN_GAP_MS apart)
    followed by Enter. We buffer digits globally while on the
-   Stock page, validate the 14-digit burst on Enter, then parse:
+   Stock or Lookup page, validate the 14-digit burst on Enter,
+   then parse:
      digits 1–5   → prefix (category)
      digits 6–13  → sku (the only value stored in inventory)
      digit 14     → suffix / check digit
    Manual entry (typed 14-digit code OR 8-digit SKU) goes through
    the same parser via the on-page input box. Listeners — including
-   the Ctrl/Cmd+F block — attach only while state.view === "stock"
-   and detach automatically the moment the user navigates away
-   (see syncScannerMode(), called at the end of every render()).
+   the Ctrl/Cmd+F block and the bare "/" (Firefox quick-find) block —
+   attach only while state.view is "stock" or "lookup" and detach
+   automatically the moment the user navigates away (see
+   syncScannerMode(), called at the end of every render()).
 --------------------------------------------------------- */
 let _scannerActive = false;
 let _scanBuffer = "";
 let _scanLastTime = 0;
+let _lookupDebounce = null;
 const SCAN_GAP_MS = 30;
 
+function isEditableFocus() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}
 function scannerKeydownHandler(e) {
   const isFindShortcut = (e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F");
   if (isFindShortcut) { e.preventDefault(); e.stopPropagation(); return; }
+  // Firefox opens "Quick Find" on a bare "/" (or "'" for links-only) when
+  // nothing editable has focus — exactly the situation a scanner creates
+  // if it fires before anyone has clicked into a field.
+  if (!isEditableFocus() && (e.key === "/" || e.key === "'")) { e.preventDefault(); e.stopPropagation(); }
   if (e.target && e.target.id === "barcode-manual-input") return; // manual box handles its own Enter
 
   if (e.key === "Enter") {
     if (/^\d{14}$/.test(_scanBuffer)) {
       e.preventDefault();
-      handleBarcodeInput(_scanBuffer, "scanner");
+      if (state.view === "lookup") handleLookupScan(_scanBuffer);
+      else handleBarcodeInput(_scanBuffer, "scanner");
     }
     _scanBuffer = ""; _scanLastTime = 0;
     return;
@@ -1428,6 +1511,19 @@ function scannerKeydownHandler(e) {
     _scanBuffer = ""; // any other printable keystroke breaks a scan burst
   }
 }
+function handleLookupScan(rawInput) {
+  const parsed = parseBarcodeDigits(rawInput);
+  if (!parsed) {
+    showToast(`Unrecognized code length (${String(rawInput).replace(/\D/g,"").length} digits) — expected 8 or 14`, "danger");
+    return;
+  }
+  state.lookupQ = parsed.sku;
+  const item = state.inventory.find(i => i.sku === parsed.sku);
+  showToast(item ? `Found ${parsed.sku} — ${item.description}` : `SKU ${parsed.sku} not found in inventory`, item ? "ok" : "danger");
+  const input = document.getElementById("lookup-q");
+  if (input) input.value = state.lookupQ;
+  updateLookupResults();
+}
 function activateScannerMode() {
   if (_scannerActive) return;
   _scannerActive = true;
@@ -1441,11 +1537,11 @@ function deactivateScannerMode() {
   _scanBuffer = ""; _scanLastTime = 0;
 }
 function syncScannerMode() {
-  if (state.session && state.view === "stock") activateScannerMode();
+  if (state.session && (state.view === "stock" || state.view === "lookup")) activateScannerMode();
   else deactivateScannerMode();
 }
 
-function handleBarcodeInput(rawInput, inputMethod) {
+function parseBarcodeDigits(rawInput) {
   const digits = String(rawInput).replace(/\D/g, "");
   let sku, prefix = null, suffix = null;
   if (digits.length === 14) {
@@ -1455,9 +1551,17 @@ function handleBarcodeInput(rawInput, inputMethod) {
   } else if (digits.length === 8) {
     sku = digits;
   } else {
-    showToast(`Unrecognized code length (${digits.length} digits) — expected 8 or 14`, "danger");
     return null;
   }
+  return { sku, prefix, suffix, digits };
+}
+function handleBarcodeInput(rawInput, inputMethod) {
+  const parsed = parseBarcodeDigits(rawInput);
+  if (!parsed) {
+    showToast(`Unrecognized code length (${String(rawInput).replace(/\D/g,"").length} digits) — expected 8 or 14`, "danger");
+    return null;
+  }
+  const { sku, prefix, suffix, digits } = parsed;
   const payload = {
     sku, prefix, suffix,
     fullBarcodeFormatted: prefix ? `${prefix}-${sku}-${suffix}` : sku,
@@ -1771,7 +1875,7 @@ function renderAdjustments() {
                 <td><span class="tag tag-violet">${esc(a.reason)}</span></td>
                 <td class="mono" style="color:${a.delta<0?'var(--danger)':'var(--ok)'};">${a.delta>0?'+':''}${a.delta}</td>
                 <td class="mono" style="font-size:12px;">${a.qtyBefore} → ${a.qtyAfter}</td>
-                <td style="color:#B4BAC5;">${esc(a.user)}</td>
+                <td style="color:var(--nav-text);">${esc(a.user)}</td>
                 <td style="color:var(--muted);font-size:12px;">${esc(a.notes)}</td>
                 <td style="color:var(--dim);font-size:11px;">${a.timestamp}</td>
               </tr>`).join("")}
@@ -1954,7 +2058,7 @@ function renderTransactions() {
                   <td><span class="tag tag-violet">${esc(a.reason)}</span></td>
                   <td class="mono" style="color:${a.delta<0?'var(--danger)':'var(--ok)'};">${a.delta>0?'+':''}${a.delta}</td>
                   <td class="mono" style="font-size:12px;">${a.qtyBefore} → ${a.qtyAfter}</td>
-                  <td style="color:#B4BAC5;">${esc(a.user)}</td>
+                  <td style="color:var(--nav-text);">${esc(a.user)}</td>
                   <td style="color:var(--muted);font-size:12px;">${esc(a.notes)}</td>
                   <td style="color:var(--dim);font-size:11px;">${a.timestamp}</td>
                 </tr>`).join("")}
@@ -1993,7 +2097,7 @@ function renderTxRow(t) {
     <div>${t.qty}</div>
     <div><span class="tag">${esc(t.locator)}</span></div>
     <div class="mono" style="font-size:12px;">₱${(t.value||0).toLocaleString()}</div>
-    <div style="color:#B4BAC5;">${esc(t.user)}</div>
+    <div style="color:var(--nav-text);">${esc(t.user)}</div>
     <div style="color:var(--muted);font-size:12px;">${esc(t.notes)}${t.inputMethod==='scanner'?' <span style="color:var(--ok);">(scanned)</span>':''}</div>
     <div style="color:var(--dim);font-size:11px;">${t.timestamp}</div>
   </div>`;
@@ -2048,7 +2152,13 @@ function attachHandlers() {
     if ((el.dataset.action === "close-edit-item" || el.dataset.action === "confirm-no") && e.target.closest(".modal")) return;
     const action = el.dataset.action;
 
-    if (action === "set-auth-mode") { state.authMode = el.dataset.mode; render(); }
+    if (action === "toggle-theme") {
+      state.theme = state.theme === "light" ? "dark" : "light";
+      localStorage.setItem("depotos-theme", state.theme);
+      applyTheme();
+      render();
+    }
+    else if (action === "set-auth-mode") { state.authMode = el.dataset.mode; render(); }
     else if (action === "set-signup-role") { state._signupRole = el.dataset.role; render(); }
     else if (action === "do-login") {
       const uname = document.getElementById("login-username").value.trim();
@@ -2145,16 +2255,16 @@ function attachHandlers() {
       render();
     }
     else if (action === "close-team-panel") { state.teamPanelOpen = false; state.chatWith = null; render(); }
-    else if (action === "open-chat") { state.chatWith = el.dataset.id; render(); }
+    else if (action === "open-chat") { state.chatWith = el.dataset.id; markThreadRead(el.dataset.id); render(); }
     else if (action === "back-to-team-list") { state.chatWith = null; render(); }
     else if (action === "send-message") {
       const input = document.getElementById("chat-input");
       const text = input.value.trim();
       if (!text) return;
-      const msg = { id: "m"+Date.now(), from_id: state.session.id, to_id: state.chatWith, text, timestamp: fmt(0) };
+      const msg = { id: "m"+Date.now(), from_id: state.session.id, to_id: state.chatWith, text, timestamp: fmt(0), read: false };
       const { error } = await sb.from("messages").insert(msg);
       if (error) { showToast(error.message, "danger"); return; }
-      state.messages.push({ id: msg.id, from: msg.from_id, to: msg.to_id, text: msg.text, timestamp: msg.timestamp });
+      state.messages.push({ id: msg.id, from: msg.from_id, to: msg.to_id, text: msg.text, timestamp: msg.timestamp, read: true });
       render();
     }
     else if (action === "trigger-import") document.getElementById("import-file").click();
@@ -2195,7 +2305,11 @@ function attachHandlers() {
   };
 
   app.oninput = (e) => {
-    if (e.target.id === "lookup-q") { state.lookupQ = e.target.value; updateLookupResults(); }
+    if (e.target.id === "lookup-q") {
+      state.lookupQ = e.target.value;
+      clearTimeout(_lookupDebounce);
+      _lookupDebounce = setTimeout(updateLookupResults, 150);
+    }
     else if (e.target.id === "barcode-manual-input") { state.barcodeManual = e.target.value; }
     else if (e.target.id === "loc-code" || e.target.id === "loc-zone" || e.target.id === "loc-desc") {
       state._locForm = state._locForm || { code:"", zone:"", description:"" };
