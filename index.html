@@ -172,10 +172,10 @@
   .stockin-tab.active-in{background:var(--ok-dk);color:var(--ok);}
   .stockin-tab.active-out{background:var(--accent-dk);color:var(--accent);}
 
-  .row-grid{display:grid;grid-template-columns:2fr 3fr 1fr 2fr 28px;gap:10px;align-items:center;margin-bottom:8px;}
-  .row-grid.single{grid-template-columns:2fr 3fr 1fr 3fr;}
-  .row-head{display:grid;grid-template-columns:2fr 3fr 1fr 2fr 28px;gap:10px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px;padding:0 2px;}
-  .row-head.single{grid-template-columns:2fr 3fr 1fr 3fr;}
+  .row-grid{display:grid;grid-template-columns:2fr 3fr 1fr 1.4fr 2fr 28px;gap:10px;align-items:center;margin-bottom:8px;}
+  .row-grid.single{grid-template-columns:2fr 3fr 1fr 1.4fr 3fr;}
+  .row-head{display:grid;grid-template-columns:2fr 3fr 1fr 1.4fr 2fr 28px;gap:10px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px;padding:0 2px;}
+  .row-head.single{grid-template-columns:2fr 3fr 1fr 1.4fr 3fr;}
   @media(max-width:700px){
     .row-grid,.row-grid.single,.row-head,.row-head.single{grid-template-columns:1fr;}
     .row-head{display:none;}
@@ -329,6 +329,7 @@ let state = {
   categories: [],
   locators: [],
   inventory: [],
+  skuLocations: [],
   transactions: [],
   loginLogs: [],
   messages: [],
@@ -344,7 +345,7 @@ let state = {
   lookupCat: "all",
   stockType: "IN",
   bulk: false,
-  rows: [{ sku: "", description: "", qty: "", notes: "" }],
+  rows: [{ sku: "", description: "", qty: "", notes: "", locator: "" }],
   barcodeManual: "",
   teamPanelOpen: false,
   chatWith: null,
@@ -375,6 +376,12 @@ function mapAdjRow(a) {
 function mapInvRow(i) {
   return { sku: i.sku, description: i.description, category: i.category, locator: i.locator, qty: i.qty, unitValue: Number(i.unit_value), reorder: i.reorder };
 }
+function mapSkuLocRow(l) {
+  return { sku: l.sku, locator: l.locator, qty: l.qty };
+}
+function getSkuLocations(sku) {
+  return state.skuLocations.filter(l => l.sku === sku);
+}
 
 async function loadProfilesOnly() {
   const { data, error } = await sb.from("profiles").select("*").order("name");
@@ -382,11 +389,12 @@ async function loadProfilesOnly() {
 }
 
 async function loadAllData() {
-  const [profilesRes, categoriesRes, locatorsRes, inventoryRes, txRes, adjRes, logsRes, msgRes] = await Promise.all([
+  const [profilesRes, categoriesRes, locatorsRes, inventoryRes, skuLocRes, txRes, adjRes, logsRes, msgRes] = await Promise.all([
     sb.from("profiles").select("*").order("name"),
     sb.from("categories").select("*").order("name"),
     sb.from("locators").select("*").order("code"),
     sb.from("inventory").select("*").order("sku"),
+    sb.from("sku_locations").select("*"),
     sb.from("transactions").select("*").order("created_at", { ascending: false }).limit(1000),
     sb.from("adjustments").select("*").order("created_at", { ascending: false }).limit(500),
     sb.from("login_logs").select("*").order("created_at", { ascending: false }).limit(300),
@@ -396,6 +404,7 @@ async function loadAllData() {
   state.categories = (categoriesRes.data || []).map(c => c.name);
   state.locators = (locatorsRes.data || []).map(l => ({ code: l.code, zone: l.zone, description: l.description }));
   state.inventory = (inventoryRes.data || []).map(mapInvRow);
+  state.skuLocations = (skuLocRes.data || []).map(mapSkuLocRow);
   state.transactions = (txRes.data || []).map(mapTxRow);
   state.adjustments = (adjRes.data || []).map(mapAdjRow);
   state.loginLogs = (logsRes.data || []).map(l => ({ user: l.user_name, role: l.role, action: l.action, timestamp: l.timestamp }));
@@ -1137,17 +1146,23 @@ function exportPDF() {
   doc.save(`inventory-export-${new Date().toISOString().slice(0,10)}.pdf`);
   showToast(`Exported ${items.length} SKU(s) to PDF`, "ok");
 }
-function splitCSVLine(line) {
+function detectCSVDelimiter(headerLine) {
+  const commaCount = (headerLine.match(/,/g) || []).length;
+  const semiCount = (headerLine.match(/;/g) || []).length;
+  return semiCount > commaCount ? ";" : ",";
+}
+function splitCSVLine(line, delimiter) {
+  delimiter = delimiter || ",";
   const result = [];
-  let cur = "", inQuotes = false;
+  let cur = "", inQuotes = false, quoteChar = null;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
     if (inQuotes) {
-      if (c === '"') { if (line[i+1] === '"') { cur += '"'; i++; } else inQuotes = false; }
+      if (c === quoteChar) { if (line[i+1] === quoteChar) { cur += quoteChar; i++; } else { inQuotes = false; quoteChar = null; } }
       else cur += c;
     } else {
-      if (c === '"') inQuotes = true;
-      else if (c === ",") { result.push(cur); cur = ""; }
+      if (c === '"' || c === "'") { inQuotes = true; quoteChar = c; }
+      else if (c === delimiter) { result.push(cur); cur = ""; }
       else cur += c;
     }
   }
@@ -1155,13 +1170,16 @@ function splitCSVLine(line) {
   return result;
 }
 function parseCSV(text) {
+  text = text.replace(/^\uFEFF/, "");
   const lines = text.split(/\r?\n/).filter(l => l.trim().length);
   if (lines.length < 2) return [];
-  const header = lines[0].split(",").map(h => h.trim().toLowerCase());
+  const delimiter = detectCSVDelimiter(lines[0]);
+  const norm = (h) => h.trim().toLowerCase().replace(/[\s_]+/g, "");
+  const header = splitCSVLine(lines[0], delimiter).map(norm);
   const idx = (name) => header.indexOf(name);
   const rows = [];
   for (let li = 1; li < lines.length; li++) {
-    const cells = splitCSVLine(lines[li]);
+    const cells = splitCSVLine(lines[li], delimiter);
     const clean = cells.map(c => c.trim());
     const sku = clean[idx("sku")];
     if (!sku) continue;
@@ -1179,8 +1197,13 @@ function parseCSV(text) {
 }
 async function importCSVFile(file) {
   const text = await file.text();
-  const rows = parseCSV(text);
+  let rows = parseCSV(text);
   if (rows.length === 0) { showToast("No valid rows found in that CSV", "danger"); return; }
+
+  const bySku = new Map();
+  rows.forEach(r => bySku.set(r.sku, r));
+  const dupeCount = rows.length - bySku.size;
+  rows = [...bySku.values()];
 
   const newCats = [...new Set(rows.map(r => r.category).filter(c => c && !state.categories.includes(c)))];
   if (newCats.length) {
@@ -1201,9 +1224,10 @@ async function importCSVFile(file) {
     if (existing) { Object.assign(existing, r, { category: r.category || existing.category }); updated++; }
     else { state.inventory.push(r); added++; }
   });
-  showToast(`Import complete — ${added} added, ${updated} updated`, "ok");
+  showToast(`Import complete — ${added} added, ${updated} updated${dupeCount ? ` (${dupeCount} duplicate SKU row(s) skipped, last one kept)` : ""}`, "ok");
   render();
 }
+
 
 /* Admin: add / edit / delete / reset (all qty-changing edits are
    mirrored into state.adjustments for the audit trail). */
@@ -1437,10 +1461,11 @@ function applyBarcodePayload(payload) {
   const item = state.inventory.find(i => i.sku === payload.sku);
   let idx = state.rows.findIndex(r => !r.sku);
   if (idx === -1) {
-    if (state.bulk) { state.rows.push({ sku: "", description: "", qty: "", notes: "" }); idx = state.rows.length - 1; }
+    if (state.bulk) { state.rows.push({ sku: "", description: "", qty: "", notes: "", locator: "" }); idx = state.rows.length - 1; }
     else idx = 0;
   }
-  state.rows[idx] = { ...state.rows[idx], sku: payload.sku, description: item ? item.description : state.rows[idx].description, _barcodeMeta: payload };
+  state.rows[idx] = { ...state.rows[idx], sku: payload.sku, description: item ? item.description : state.rows[idx].description,
+    locator: state.rows[idx].locator || (item ? item.locator || "" : ""), _barcodeMeta: payload };
   showToast(
     item ? `${payload.inputMethod === "scanner" ? "Scanned" : "Entered"} ${payload.sku} — ${item.description}` : `SKU ${payload.sku} not found in inventory — row filled for review`,
     item ? "ok" : "danger"
@@ -1492,7 +1517,7 @@ function renderStock() {
 
     <div class="card" style="margin-bottom:16px;">
       <div class="row-head ${bulk?'':'single'}">
-        <div>SKU</div><div>Description</div><div>Qty</div><div>Notes</div>${bulk?'<div></div>':''}
+        <div>SKU</div><div>Description</div><div>Qty</div><div>Location</div><div>Notes</div>${bulk?'<div></div>':''}
       </div>
       <div id="rows-wrap">
         ${state.rows.map((row, idx) => renderStockRow(row, idx, bulk)).join("")}
@@ -1526,12 +1551,28 @@ function renderStock() {
     </div>
   `;
 }
+function stockRowLocationOptions(row) {
+  const item = state.inventory.find(i => i.sku === row.sku);
+  if (state.stockType === "OUT" && item) {
+    const locs = getSkuLocations(item.sku);
+    if (locs.length) return locs.filter(l => l.qty > 0).map(l => ({ code: l.locator, avail: l.qty }));
+    // No explicit per-location breakdown recorded yet for this SKU — all of its
+    // qty is implicitly sitting at its primary locator.
+    return item.locator ? [{ code: item.locator, avail: item.qty }] : [];
+  }
+  return state.locators.map(l => ({ code: l.code, avail: null }));
+}
 function renderStockRow(row, idx, bulk) {
+  const opts = stockRowLocationOptions(row);
   return `
     <div class="row-grid ${bulk?'':'single'}" data-row="${idx}">
       <input list="sku-options" class="row-sku" placeholder="10112345" value="${esc(row.sku)}" data-idx="${idx}" data-field="sku" />
       <input class="row-desc" placeholder="Auto-filled from SKU" value="${esc(row.description)}" data-idx="${idx}" data-field="description" style="opacity:.85;" />
       <input type="number" min="0" class="row-qty" placeholder="0" value="${esc(row.qty)}" data-idx="${idx}" data-field="qty" />
+      <select class="row-locator" data-idx="${idx}" data-field="locator">
+        <option value="" ${!row.locator?'selected':''}>Select location…</option>
+        ${opts.map(o => `<option value="${esc(o.code)}" ${row.locator===o.code?'selected':''}>${esc(o.code)}${o.avail!=null?` (${o.avail} on hand)`:''}</option>`).join("")}
+      </select>
       <input class="row-notes" placeholder="Optional note" value="${esc(row.notes)}" data-idx="${idx}" data-field="notes" />
       ${bulk ? `<button class="icon-btn" data-action="remove-row" data-idx="${idx}">${ICONS.trash}</button>` : ""}
     </div>`;
@@ -1540,29 +1581,88 @@ function renderStockRow(row, idx, bulk) {
 async function submitStock() {
   const validRows = state.rows.filter(r => r.sku && r.qty);
   if (validRows.length === 0) return showToast("Add at least one SKU with quantity", "danger");
+  if (validRows.some(r => !r.locator)) return showToast("Select a location for every row", "danger");
 
   const type = state.stockType;
   let newTx = [];
   let invUpdates = [];
+  let locUpdates = [];
   let hadError = false;
+  const seenLocs = new Map(); // sku -> Set of active locators, seeded lazily
+
+  const activeLocsFor = (sku) => {
+    if (!seenLocs.has(sku)) seenLocs.set(sku, new Set(getSkuLocations(sku).map(l => l.locator)));
+    return seenLocs.get(sku);
+  };
+  const locQtyFor = (sku, locator) => {
+    const existing = state.skuLocations.find(l => l.sku === sku && l.locator === locator);
+    if (existing) return existing.qty;
+    const item = state.inventory.find(i => i.sku === sku);
+    // No explicit breakdown yet for this SKU — its whole qty is implicitly at its primary locator.
+    if (item && item.locator === locator && getSkuLocations(sku).length === 0) return item.qty;
+    return 0;
+  };
+
+  const seededSkus = new Set();
+  const seedIfNeeded = (sku) => {
+    if (seededSkus.has(sku)) return;
+    seededSkus.add(sku);
+    if (getSkuLocations(sku).length === 0) {
+      const item = state.inventory.find(i => i.sku === sku);
+      if (item && item.locator && item.qty > 0) {
+        state.skuLocations.push({ sku, locator: item.locator, qty: item.qty });
+        locUpdates.push({ sku, locator: item.locator, qty: item.qty });
+      }
+    }
+  };
 
   validRows.forEach(r => {
     const item = state.inventory.find(i => i.sku === r.sku);
     if (!item) { hadError = true; return; }
+    seedIfNeeded(r.sku);
     const qty = parseInt(r.qty, 10);
     if (!qty || qty <= 0) { hadError = true; return; }
-    if (type === "OUT" && qty > item.qty) {
-      showToast(`${r.sku}: not enough stock on hand (${item.qty} available)`, "danger");
-      hadError = true; return;
+    const locator = r.locator;
+
+    if (type === "OUT") {
+      const avail = locQtyFor(r.sku, locator);
+      if (qty > avail) {
+        showToast(`${r.sku}: not enough stock at ${locator} (${avail} available)`, "danger");
+        hadError = true; return;
+      }
+    } else {
+      const locs = activeLocsFor(r.sku);
+      if (!locs.has(locator) && locs.size >= 5) {
+        showToast(`${r.sku}: already has the maximum of 5 storage locations`, "danger");
+        hadError = true; return;
+      }
+      locs.add(locator);
     }
+
+    const wasUnlocated = !item.locator;
     const newQty = type === "IN" ? item.qty + qty : item.qty - qty;
-    invUpdates.push({ sku: item.sku, qty: newQty });
+    invUpdates.push({ sku: item.sku, qty: newQty, locator: wasUnlocated ? locator : undefined });
     item.qty = newQty;
+    if (wasUnlocated) item.locator = locator;
+
+    const curLocQty = locQtyFor(r.sku, locator);
+    const newLocQty = type === "IN" ? curLocQty + qty : curLocQty - qty;
+    locUpdates.push({ sku: r.sku, locator, qty: newLocQty });
+    // Apply immediately so a second bulk row for the same SKU/location in this
+    // same submission sees the correct running total, not a stale read.
+    const li = state.skuLocations.findIndex(l => l.sku === r.sku && l.locator === locator);
+    if (newLocQty > 0) {
+      if (li > -1) state.skuLocations[li].qty = newLocQty;
+      else state.skuLocations.push({ sku: r.sku, locator, qty: newLocQty });
+    } else if (li > -1) {
+      state.skuLocations.splice(li, 1);
+    }
+
     const meta = r._barcodeMeta || {};
     newTx.push({
       id: "T-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000) + Math.floor(Math.random()*99),
       type, sku: r.sku, description: item.description, qty,
-      locator: item.locator, notes: r.notes || "—", user: state.session.name,
+      locator, notes: r.notes || "—", user: state.session.name,
       value: qty * item.unitValue, timestamp: fmt(0),
       inputMethod: meta.inputMethod || "manual-form",
       prefix: meta.prefix ?? null,
@@ -1577,9 +1677,25 @@ async function submitStock() {
     return;
   }
 
-  const results = await Promise.all(invUpdates.map(u => sb.from("inventory").update({ qty: u.qty }).eq("sku", u.sku)));
+  const dedupeByKey = (arr, keyFn) => [...new Map(arr.map(x => [keyFn(x), x])).values()];
+  invUpdates = dedupeByKey(invUpdates, u => u.sku);
+  locUpdates = dedupeByKey(locUpdates, u => `${u.sku}|${u.locator}`);
+
+  const results = await Promise.all(invUpdates.map(u => {
+    const payload = { qty: u.qty };
+    if (u.locator) payload.locator = u.locator;
+    return sb.from("inventory").update(payload).eq("sku", u.sku);
+  }));
   const updateErr = results.find(r => r.error);
   if (updateErr) { showToast(updateErr.error.message, "danger"); return; }
+
+  const locResults = await Promise.all(locUpdates.map(u =>
+    u.qty > 0
+      ? sb.from("sku_locations").upsert({ sku: u.sku, locator: u.locator, qty: u.qty }, { onConflict: "sku,locator" })
+      : sb.from("sku_locations").delete().eq("sku", u.sku).eq("locator", u.locator)
+  ));
+  const locErr = locResults.find(r => r.error);
+  if (locErr) { showToast(`Location update failed: ${locErr.error.message}`, "danger"); return; }
 
   const { error: txErr } = await sb.from("transactions").insert(newTx.map(t => ({
     id: t.id, type: t.type, sku: t.sku, description: t.description, qty: t.qty, locator: t.locator,
@@ -1590,7 +1706,7 @@ async function submitStock() {
   if (txErr) { showToast(txErr.message, "danger"); return; }
 
   state.transactions.unshift(...newTx);
-  state.rows = [{ sku: "", description: "", qty: "", notes: "" }];
+  state.rows = [{ sku: "", description: "", qty: "", notes: "", locator: "" }];
   state.barcodeManual = "";
   showToast(`${newTx.length} stock ${type==='IN'?'in':'out'} entr${newTx.length>1?'ies':'y'} recorded`, "ok");
   render();
@@ -1942,11 +2058,11 @@ function attachHandlers() {
     else if (action === "do-logout") doLogout();
     else if (action === "set-view") { state.view = el.dataset.view; render(); }
     else if (action === "set-stock-type") { state.stockType = el.dataset.type; render(); }
-    else if (action === "add-row") { state.rows.push({ sku:"", description:"", qty:"", notes:"" }); render(); }
+    else if (action === "add-row") { state.rows.push({ sku:"", description:"", qty:"", notes:"", locator:"" }); render(); }
     else if (action === "remove-row") {
       const idx = +el.dataset.idx;
       state.rows.splice(idx, 1);
-      if (state.rows.length === 0) state.rows.push({ sku:"", description:"", qty:"", notes:"" });
+      if (state.rows.length === 0) state.rows.push({ sku:"", description:"", qty:"", notes:"", locator:"" });
       render();
     }
     else if (action === "submit-stock") await submitStock();
@@ -2051,6 +2167,10 @@ function attachHandlers() {
       if (e.target.files && e.target.files[0]) await importCSVFile(e.target.files[0]);
       e.target.value = "";
     }
+    else if (e.target.classList.contains("row-locator")) {
+      const idx = +e.target.dataset.idx;
+      state.rows[idx].locator = e.target.value;
+    }
     else if (e.target.dataset.action === "change-role") {
       const uid = e.target.dataset.id;
       const role = e.target.value;
@@ -2083,7 +2203,11 @@ function attachHandlers() {
       state.rows[idx][field] = e.target.value;
       if (field === "sku") {
         const item = state.inventory.find(i => i.sku === e.target.value);
-        if (item) { state.rows[idx].description = item.description; render(); refocus(`.row-sku[data-idx="${idx}"]`, true); }
+        if (item) {
+          state.rows[idx].description = item.description;
+          if (!state.rows[idx].locator) state.rows[idx].locator = item.locator || "";
+          render(); refocus(`.row-sku[data-idx="${idx}"]`, true);
+        }
       }
     }
   };
