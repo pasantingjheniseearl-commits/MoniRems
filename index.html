@@ -1475,6 +1475,7 @@ let _scannerActive = false;
 let _scanBuffer = "";
 let _scanLastTime = 0;
 let _lookupDebounce = null;
+let _manualBarcodeDebounce = null;
 const SCAN_GAP_MS = 30;
 
 function isEditableFocus() {
@@ -1484,7 +1485,7 @@ function isEditableFocus() {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
 }
 function scannerKeydownHandler(e) {
-  const isFindShortcut = (e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F");
+  const isFindShortcut = ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) || e.key === "F3";
   if (isFindShortcut) { e.preventDefault(); e.stopPropagation(); return; }
   // Firefox opens "Quick Find" on a bare "/" (or "'" for links-only) when
   // nothing editable has focus — exactly the situation a scanner creates
@@ -2310,7 +2311,23 @@ function attachHandlers() {
       clearTimeout(_lookupDebounce);
       _lookupDebounce = setTimeout(updateLookupResults, 150);
     }
-    else if (e.target.id === "barcode-manual-input") { state.barcodeManual = e.target.value; }
+    else if (e.target.id === "barcode-manual-input") {
+      state.barcodeManual = e.target.value;
+      clearTimeout(_manualBarcodeDebounce);
+      const digitLen = e.target.value.replace(/\D/g, "").length;
+      if (digitLen === 8 || digitLen === 14) {
+        // Scanner finished (or a human finished typing) a complete code.
+        // Wait briefly in case more characters are still arriving — real
+        // scanner bursts finish in well under this window, so a genuine
+        // pause here means the code is done, even with no Enter sent.
+        _manualBarcodeDebounce = setTimeout(() => {
+          const el = document.getElementById("barcode-manual-input");
+          if (el && el.value.replace(/\D/g, "").length === digitLen) {
+            document.querySelector('[data-action="submit-manual-barcode"]')?.click();
+          }
+        }, 120);
+      }
+    }
     else if (e.target.id === "loc-code" || e.target.id === "loc-zone" || e.target.id === "loc-desc") {
       state._locForm = state._locForm || { code:"", zone:"", description:"" };
       if (e.target.id === "loc-code") state._locForm.code = e.target.value;
