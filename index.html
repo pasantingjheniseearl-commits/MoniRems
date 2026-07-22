@@ -1137,6 +1137,23 @@ function exportPDF() {
   doc.save(`inventory-export-${new Date().toISOString().slice(0,10)}.pdf`);
   showToast(`Exported ${items.length} SKU(s) to PDF`, "ok");
 }
+function splitCSVLine(line) {
+  const result = [];
+  let cur = "", inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') { if (line[i+1] === '"') { cur += '"'; i++; } else inQuotes = false; }
+      else cur += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ",") { result.push(cur); cur = ""; }
+      else cur += c;
+    }
+  }
+  result.push(cur);
+  return result;
+}
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim().length);
   if (lines.length < 2) return [];
@@ -1144,8 +1161,8 @@ function parseCSV(text) {
   const idx = (name) => header.indexOf(name);
   const rows = [];
   for (let li = 1; li < lines.length; li++) {
-    const cells = lines[li].match(/(".*?"|[^,]+)(?=,|$)/g) || [];
-    const clean = cells.map(c => c.trim().replace(/^"|"$/g,"").replace(/""/g,'"'));
+    const cells = splitCSVLine(lines[li]);
+    const clean = cells.map(c => c.trim());
     const sku = clean[idx("sku")];
     if (!sku) continue;
     rows.push({
