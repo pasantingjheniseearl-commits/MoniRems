@@ -235,6 +235,7 @@
   .msg-me{align-self:flex-end;background:var(--accent-dk);color:var(--text);border:1px solid var(--accent-bd);border-bottom-right-radius:2px;}
   .msg-them{align-self:flex-start;background:var(--field);border:1px solid var(--line);border-bottom-left-radius:2px;}
   .msg-time{font-size:10px;color:var(--dim);margin-top:3px;}
+  .msg-status{font-size:10px;color:var(--dim);margin-top:1px;}
   .chat-input-row{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line);flex-shrink:0;}
 
   /* modal */
@@ -457,6 +458,7 @@ async function loadAllData() {
   state.adjustments = (adjRes.data || []).map(mapAdjRow);
   state.loginLogs = (logsRes.data || []).map(l => ({ user: l.user_name, role: l.role, action: l.action, timestamp: l.timestamp }));
   state.messages = (msgRes.data || []).map(m => ({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp, read: !!m.read }));
+  purgeOldMessages();
 }
 
 function subscribeRealtime() {
@@ -473,6 +475,7 @@ function subscribeRealtime() {
           const incoming = m.to_id === state.session.id;
           const viewingThisThread = incoming && state.teamPanelOpen && state.chatWith === m.from_id;
           state.messages.push({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp, read: !incoming || viewingThisThread });
+          purgeOldMessages();
           if (incoming && viewingThisThread) {
             sb.from("messages").update({ read: true }).eq("id", m.id);
           } else if (incoming) {
@@ -481,6 +484,15 @@ function subscribeRealtime() {
           }
           render();
         }
+      }
+    })
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, (payload) => {
+      const m = payload.new;
+      if (!state.session) return;
+      // Only relevant case for us: a message WE sent just got marked read by its recipient.
+      if (m.from_id === state.session.id) {
+        const local = state.messages.find(x => x.id === m.id);
+        if (local && local.read !== !!m.read) { local.read = !!m.read; render(); }
       }
     })
     .subscribe();
@@ -527,9 +539,10 @@ async function doLogin(usernameOrEmail, password) {
   try {
     let email = usernameOrEmail;
     if (!email.includes("@")) {
-      const { data: prof } = await sb.from("profiles").select("email").eq("username", usernameOrEmail).maybeSingle();
-      if (!prof) { showToast("No account with that username", "danger"); return; }
-      email = prof.email;
+      const { data: resolvedEmail, error: lookupErr } = await sb.rpc("get_email_for_username", { p_username: usernameOrEmail });
+      if (lookupErr) { showToast(lookupErr.message, "danger"); return; }
+      if (!resolvedEmail) { showToast("No account with that username", "danger"); return; }
+      email = resolvedEmail;
     }
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
     if (error) { showToast(error.message, "danger"); return; }
@@ -642,7 +655,6 @@ function render() {
   document.getElementById("stripe").style.display = (state.session && !state.loading) ? "none" : "block";
   if (state.connectionError) { app.innerHTML = renderConnectionError(); return; }
   if (state.loading) { app.innerHTML = renderLoading(); return; }
-  purgeOldMessages();
   app.innerHTML = state.session ? renderShell() : renderAuth();
   attachHandlers();
   syncScannerMode();
@@ -848,11 +860,15 @@ function renderTeamPanel() {
       </div>
       <div class="msg-thread">
         ${thread.length === 0 ? `<div style="font-size:12.5px;color:var(--dim);text-align:center;padding:20px 0;">No messages yet — say hello.</div>` :
-          thread.map(m => `
+          (() => {
+            const lastMineIdx = thread.map(m => m.from === state.session.id).lastIndexOf(true);
+            return thread.map((m, idx) => `
             <div style="display:flex;flex-direction:column;${m.from===state.session.id?'align-items:flex-end;':'align-items:flex-start;'}">
               <div class="msg-bubble ${m.from===state.session.id?'msg-me':'msg-them'}">${esc(m.text)}</div>
               <div class="msg-time">${m.timestamp}</div>
-            </div>`).join("")}
+              ${idx===lastMineIdx ? `<div class="msg-status">${m.read ? 'Seen' : 'Sent'}</div>` : ""}
+            </div>`).join("");
+          })()}
       </div>`;
   } else {
     body = state.users.map(u => {
@@ -1757,12 +1773,12 @@ async function submitStock() {
     }
 
     const wasUnlocated = !item.locator;
+    const curLocQty = locQtyFor(r.sku, locator);
     const newQty = type === "IN" ? item.qty + qty : item.qty - qty;
     invUpdates.push({ sku: item.sku, qty: newQty, locator: wasUnlocated ? locator : undefined });
     item.qty = newQty;
     if (wasUnlocated) item.locator = locator;
 
-    const curLocQty = locQtyFor(r.sku, locator);
     const newLocQty = type === "IN" ? curLocQty + qty : curLocQty - qty;
     locUpdates.push({ sku: r.sku, locator, qty: newLocQty });
     // Apply immediately so a second bulk row for the same SKU/location in this
@@ -2266,6 +2282,7 @@ function attachHandlers() {
       const { error } = await sb.from("messages").insert(msg);
       if (error) { showToast(error.message, "danger"); return; }
       state.messages.push({ id: msg.id, from: msg.from_id, to: msg.to_id, text: msg.text, timestamp: msg.timestamp, read: true });
+      purgeOldMessages();
       render();
     }
     else if (action === "trigger-import") document.getElementById("import-file").click();
