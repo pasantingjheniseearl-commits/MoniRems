@@ -169,7 +169,7 @@ try {
 // (and calling functions retrieved the same way) affects real app state.
 for (const name of ["state", "submitStock", "importCSVFile", "parseCSV", "fmt", "getSkuLocations",
   "generateRetailBarcode", "isValidEan13", "sampleValueForBind", "addLabelField", "updateLabelField", "deleteLabelField", "saveLabelTemplate", "newFieldId",
-  "resolveItemFromScan", "handleLabelScan", "resolvedFieldValue", "printFieldValue", "triggerLabelPrint"]) {
+  "resolveItemFromScan", "handleLabelScan", "resolvedFieldValue", "printFieldValue", "triggerLabelPrint", "barcodeRenderOptions"]) {
   sandbox[name] = vm.runInContext(name, sandbox);
 }
 
@@ -375,6 +375,21 @@ async function main() {
   check("print output uses the override, not the raw SKU", printedHtml.includes("OVERRIDDEN-DISPLAY"));
   check("print output sized to the template's real mm dimensions", printedHtml.includes("width:50mm") && printedHtml.includes("height:25mm"), printedHtml.slice(0,200));
   check("window.print() was invoked", sandbox._printCalled === true);
+
+  // ---------------------------------------------------------
+  // Barcode print quality — guards against the exact regression
+  // that made real printed barcodes unreadable (module width was
+  // an unguessed default of 2px regardless of printer DPI)
+  // ---------------------------------------------------------
+  section("Barcode rendering quality (module width vs printer DPI)");
+  const opts300 = sandbox.barcodeRenderOptions({ h: 20 }, 300);
+  check("300dpi module width is well above the 0.33mm ANSI minimum", opts300.width >= 4, `width=${opts300.width}px (0.33mm@300dpi≈3.9px)`);
+  check("300dpi module width matches the 0.4mm safety target (~5px)", opts300.width === 5, `width=${opts300.width}`);
+  const opts203 = sandbox.barcodeRenderOptions({ h: 20 }, 203);
+  check("203dpi still clears the ANSI minimum", opts203.width >= 3, `width=${opts203.width}px (0.33mm@203dpi≈2.6px)`);
+  check("higher DPI produces a proportionally larger module width", opts300.width > opts203.width);
+  const optsNoDpi = sandbox.barcodeRenderOptions({ h: 20 }, undefined);
+  check("missing DPI falls back to a safe default (300), not the old arbitrary 2px", optsNoDpi.width === 5, `width=${optsNoDpi.width}`);
 
   section("Philippine timezone");
   const stamp = sandbox.fmt(0);

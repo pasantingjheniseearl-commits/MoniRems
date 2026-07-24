@@ -255,7 +255,8 @@
   @media(max-width:560px){.barcode-row{flex-direction:column;}}
 
   ::selection{background:var(--accent);color:var(--on-accent);}  #print-area{visibility:hidden;position:absolute;left:-9999px;top:0;}
-  .print-label-block{page-break-after:always;background:#fff;position:relative;overflow:hidden;}
+  .print-label-block{page-break-after:always;background:#fff;position:relative;overflow:hidden;print-color-adjust:exact;-webkit-print-color-adjust:exact;}
+  .print-label-block *{print-color-adjust:exact;-webkit-print-color-adjust:exact;}
   .print-label-block:last-child{page-break-after:auto;}
   @media print{
     body > *:not(#print-area){display:none !important;}
@@ -453,7 +454,7 @@ function mapSkuLocRow(l) {
   return { sku: l.sku, locator: l.locator, qty: l.qty };
 }
 function mapLabelTemplate(t) {
-  return { id: t.id, name: t.name, widthMm: Number(t.width_mm), heightMm: Number(t.height_mm), fields: t.fields || [] };
+  return { id: t.id, name: t.name, widthMm: Number(t.width_mm), heightMm: Number(t.height_mm), dpi: Number(t.dpi) || 300, fields: t.fields || [] };
 }
 function getSkuLocations(sku) {
   return state.skuLocations.filter(l => l.sku === sku);
@@ -2128,6 +2129,15 @@ const LABEL_BIND_OPTIONS = [
   { value: "unitValue", label: "Price" },
   { value: "retailBarcode", label: "Retail barcode (text)" },
 ];
+const BARCODE_MODULE_MM = 0.4; // safe bar width for thermal printing — above the 0.33mm ANSI minimum, allows for dot gain
+function barcodeRenderOptions(field, dpi) {
+  const pxPerMm = (dpi || 300) / 25.4;
+  return {
+    format: "EAN13", displayValue: true, fontSize: 10, margin: 2,
+    width: Math.max(1, Math.round(BARCODE_MODULE_MM * pxPerMm)),
+    height: Math.max(10, Math.round((field.h || 20) * pxPerMm)),
+  };
+}
 function sampleValueForBind(bind) {
   switch (bind) {
     case "sku": return LABEL_SAMPLE.sku;
@@ -2274,7 +2284,7 @@ function renderLabelPrintBarcodePreviews() {
   document.querySelectorAll(".label-print-barcode-svg").forEach(svg => {
     const field = t.fields.find(f => f.id === svg.dataset.fieldId);
     if (!field) return;
-    try { JsBarcode(svg, printFieldValue(field), { format: "EAN13", displayValue: true, fontSize: 10, margin: 2, height: 40 }); }
+    try { JsBarcode(svg, printFieldValue(field), barcodeRenderOptions(field, t.dpi)); }
     catch (e) { /* leave blank rather than crash */ }
   });
 }
@@ -2331,11 +2341,20 @@ function renderLabelDesigner() {
         <label class="field" style="width:220px;"><span class="lbl">Template name</span><input id="lbl-name" value="${esc(t.name)}" /></label>
         <label class="field" style="width:110px;"><span class="lbl">Width (mm)</span><input id="lbl-width" type="number" min="10" step="0.5" value="${t.widthMm}" /></label>
         <label class="field" style="width:110px;"><span class="lbl">Height (mm)</span><input id="lbl-height" type="number" min="10" step="0.5" value="${t.heightMm}" /></label>
+        <label class="field" style="width:110px;"><span class="lbl">Printer DPI</span>
+          <select id="lbl-dpi">
+            <option value="203" ${t.dpi===203?'selected':''}>203 dpi</option>
+            <option value="300" ${(!t.dpi||t.dpi===300)?'selected':''}>300 dpi</option>
+          </select>
+        </label>
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-ghost" data-action="close-label-editor">Cancel</button>
         <button class="btn btn-primary" data-action="save-label-template">${ICONS.plus} Save template</button>
       </div>
+    </div>
+    <div class="banner" style="margin-bottom:14px;">
+      For correct orientation and sizing, make sure a matching custom paper size (${t.widthMm}mm × ${t.heightMm}mm) exists in your Citizen CL-S700's Windows printer properties, and that it's selected in the print dialog before printing.
     </div>
     <div style="display:flex;gap:8px;margin-bottom:14px;">
       <button class="btn btn-ghost btn-sm" data-action="add-label-text-field">${ICONS.plus} Text field</button>
@@ -2392,10 +2411,13 @@ function renderLabelFieldProps(f) {
 }
 
 function renderLabelBarcodePreviews() {
-  if (typeof JsBarcode === "undefined") return;
+  if (typeof JsBarcode === "undefined" || !state.labelEditor) return;
+  const t = state.labelEditor;
   document.querySelectorAll(".label-barcode-svg").forEach(svg => {
+    const field = t.fields.find(f => f.id === svg.dataset.fieldId);
+    if (!field) return;
     try {
-      JsBarcode(svg, sampleValueForBind("retailBarcode"), { format: "EAN13", displayValue: true, fontSize: 10, margin: 2, height: 40 });
+      JsBarcode(svg, sampleValueForBind("retailBarcode"), barcodeRenderOptions(field, t.dpi));
     } catch (e) { /* invalid sample — leave blank rather than crash the designer */ }
   });
 }
@@ -2404,7 +2426,7 @@ function addLabelField(type) {
   const t = state.labelEditor;
   const n = t.fields.length;
   const field = type === "barcode"
-    ? { id: newFieldId(), type: "barcode", bind: "retailBarcode", x: 5 + (n % 3) * 3, y: 5 + (n % 3) * 3, w: 40, h: 15 }
+    ? { id: newFieldId(), type: "barcode", bind: "retailBarcode", x: 5 + (n % 3) * 3, y: 5 + (n % 3) * 3, w: 48, h: 20 }
     : { id: newFieldId(), type: "text", bind: "description", static: "", x: 5 + (n % 3) * 3, y: 5 + (n % 3) * 3, w: 35, h: 8, fontSize: 10, bold: false, align: "left" };
   t.fields.push(field);
   state.labelSelectedFieldId = field.id;
@@ -2477,15 +2499,16 @@ async function saveLabelTemplate() {
   const name = document.getElementById("lbl-name").value.trim();
   const widthMm = parseFloat(document.getElementById("lbl-width").value);
   const heightMm = parseFloat(document.getElementById("lbl-height").value);
+  const dpi = parseInt(document.getElementById("lbl-dpi").value, 10) || 300;
   if (!name) return showToast("Template name is required", "danger");
   if (!widthMm || !heightMm || widthMm <= 0 || heightMm <= 0) return showToast("Enter a valid width and height", "danger");
-  t.name = name; t.widthMm = widthMm; t.heightMm = heightMm;
+  t.name = name; t.widthMm = widthMm; t.heightMm = heightMm; t.dpi = dpi;
   const isNew = !state.labelTemplates.some(x => x.id === t.id);
-  const dbPayload = { id: t.id, name: t.name, width_mm: t.widthMm, height_mm: t.heightMm, fields: t.fields, updated_at: fmt(0) };
+  const dbPayload = { id: t.id, name: t.name, width_mm: t.widthMm, height_mm: t.heightMm, dpi: t.dpi, fields: t.fields, updated_at: fmt(0) };
   const { error } = await sb.from("label_templates").upsert(dbPayload, { onConflict: "id" });
   if (error) { showToast(error.message, "danger"); return; }
-  if (isNew) state.labelTemplates.push({ id: t.id, name: t.name, widthMm: t.widthMm, heightMm: t.heightMm, fields: t.fields });
-  else { const existing = state.labelTemplates.find(x => x.id === t.id); Object.assign(existing, { name: t.name, widthMm: t.widthMm, heightMm: t.heightMm, fields: t.fields }); }
+  if (isNew) state.labelTemplates.push({ id: t.id, name: t.name, widthMm: t.widthMm, heightMm: t.heightMm, dpi: t.dpi, fields: t.fields });
+  else { const existing = state.labelTemplates.find(x => x.id === t.id); Object.assign(existing, { name: t.name, widthMm: t.widthMm, heightMm: t.heightMm, dpi: t.dpi, fields: t.fields }); }
   state.labelEditor = null;
   state.labelSelectedFieldId = null;
   showToast("Template saved", "ok");
@@ -2522,7 +2545,7 @@ async function triggerLabelPrint() {
     printArea.querySelectorAll(".print-out-barcode-svg").forEach(svg => {
       const field = t.fields.find(f => f.id === svg.dataset.fieldId);
       if (!field) return;
-      try { JsBarcode(svg, printFieldValue(field), { format: "EAN13", displayValue: true, fontSize: 10, margin: 2, height: field.h * 3 }); }
+      try { JsBarcode(svg, printFieldValue(field), barcodeRenderOptions(field, t.dpi)); }
       catch (e) { /* leave blank rather than block printing */ }
     });
   }
@@ -2807,14 +2830,14 @@ function attachHandlers() {
     }
     else if (action === "save-edit-item") await saveEditItem();
     else if (action === "new-label-template") {
-      state.labelEditor = { id: "lbl_" + Math.random().toString(36).slice(2,9), name: "Untitled template", widthMm: 50.8, heightMm: 25.4, fields: [] };
+      state.labelEditor = { id: "lbl_" + Math.random().toString(36).slice(2,9), name: "Untitled template", widthMm: 50.8, heightMm: 25.4, dpi: 300, fields: [] };
       state.labelSelectedFieldId = null;
       render();
     }
     else if (action === "edit-label-template") {
       const t = state.labelTemplates.find(x => x.id === el.dataset.id);
       if (!t) return;
-      state.labelEditor = { id: t.id, name: t.name, widthMm: t.widthMm, heightMm: t.heightMm, fields: JSON.parse(JSON.stringify(t.fields)) };
+      state.labelEditor = { id: t.id, name: t.name, widthMm: t.widthMm, heightMm: t.heightMm, dpi: t.dpi || 300, fields: JSON.parse(JSON.stringify(t.fields)) };
       state.labelSelectedFieldId = null;
       render();
     }
