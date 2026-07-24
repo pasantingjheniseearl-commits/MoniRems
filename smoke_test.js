@@ -140,16 +140,20 @@ sandbox.setInterval = setInterval;
 sandbox.clearInterval = clearInterval;
 sandbox.window.jspdf = { jsPDF: function () { return { text(){}, save(){}, autoTable(){} }; } };
 sandbox.window.supabase = { createClient: () => makeFakeSupabase(store) };
+sandbox._fakeElements = {};
 sandbox.document = {
   documentElement: { setAttribute(){}, getAttribute(){ return null; } },
   activeElement: null,
   addEventListener(){}, removeEventListener(){},
-  getElementById: () => makeFakeElement(),
+  getElementById: (id) => sandbox._fakeElements[id] || makeFakeElement(),
   createElement: () => makeFakeElement(),
   querySelector: () => null,
   querySelectorAll: () => [],
   body: makeFakeElement(),
+  head: makeFakeElement(),
 };
+sandbox.window.print = () => { sandbox._printCalled = true; };
+sandbox._fakeElements["print-area"] = makeFakeElement();
 
 vm.createContext(sandbox);
 try {
@@ -163,7 +167,9 @@ try {
 // explicitly. Since `state` is an object, this is the same underlying
 // reference the app's own functions close over, so mutating it here
 // (and calling functions retrieved the same way) affects real app state.
-for (const name of ["state", "submitStock", "importCSVFile", "parseCSV", "fmt", "getSkuLocations"]) {
+for (const name of ["state", "submitStock", "importCSVFile", "parseCSV", "fmt", "getSkuLocations",
+  "generateRetailBarcode", "isValidEan13", "sampleValueForBind", "addLabelField", "updateLabelField", "deleteLabelField", "saveLabelTemplate", "newFieldId",
+  "resolveItemFromScan", "handleLabelScan", "resolvedFieldValue", "printFieldValue", "triggerLabelPrint"]) {
   sandbox[name] = vm.runInContext(name, sandbox);
 }
 
@@ -277,6 +283,99 @@ async function main() {
   // ---------------------------------------------------------
   // Timezone
   // ---------------------------------------------------------
+  // ---------------------------------------------------------
+  // Labels — template CRUD, field defaults, sample data binding
+  // ---------------------------------------------------------
+  section("Label templates");
+  sandbox.state.labelTemplates = [];
+  sandbox.state.labelEditor = { id: "lbl_test1", name: "Draft", widthMm: 50, heightMm: 25, fields: [] };
+  sandbox.state.labelSelectedFieldId = null;
+
+  sandbox.addLabelField("text");
+  let textField = sandbox.state.labelEditor.fields[0];
+  check("text field created with sane defaults", !!textField && textField.type === "text" && textField.bind === "description", JSON.stringify(textField));
+  check("newly added field is auto-selected", sandbox.state.labelSelectedFieldId === textField.id);
+
+  sandbox.addLabelField("barcode");
+  let barcodeField = sandbox.state.labelEditor.fields[1];
+  check("barcode field created bound to retailBarcode", !!barcodeField && barcodeField.type === "barcode" && barcodeField.bind === "retailBarcode", JSON.stringify(barcodeField));
+  check("two distinct field ids generated", textField.id !== barcodeField.id);
+
+  sandbox.updateLabelField(textField.id, { bind: "unitValue" });
+  check("sample value for unitValue binding is peso-formatted", sandbox.sampleValueForBind("unitValue").startsWith("₱"), sandbox.sampleValueForBind("unitValue"));
+  check("sample retail barcode matches generator output for the sample SKU", sandbox.sampleValueForBind("retailBarcode") === sandbox.generateRetailBarcode("10112345"));
+
+  sandbox.deleteLabelField(textField.id);
+  check("field removed", sandbox.state.labelEditor.fields.length === 1 && sandbox.state.labelEditor.fields[0].id === barcodeField.id);
+
+  // Save flow against the fake DB (reads form values via getElementById,
+  // same as the real browser code does)
+  sandbox._fakeElements["lbl-name"] = { value: "Small Shelf Tag" };
+  sandbox._fakeElements["lbl-width"] = { value: "50" };
+  sandbox._fakeElements["lbl-height"] = { value: "25" };
+  await sandbox.saveLabelTemplate();
+  check("template persisted to DB store", store.label_templates.length === 1, JSON.stringify(store.label_templates));
+  check("template appears in local state after save", sandbox.state.labelTemplates.some(t => t.name === "Small Shelf Tag"));
+  check("editor closed after save", sandbox.state.labelEditor === null);
+
+  // Editing an existing template should update, not duplicate
+  const savedId = sandbox.state.labelTemplates[0].id;
+  sandbox.state.labelEditor = { id: savedId, name: "Small Shelf Tag", widthMm: 50, heightMm: 25, fields: [barcodeField] };
+  sandbox._fakeElements["lbl-name"] = { value: "Small Shelf Tag (renamed)" };
+  sandbox._fakeElements["lbl-width"] = { value: "50" };
+  sandbox._fakeElements["lbl-height"] = { value: "25" };
+  await sandbox.saveLabelTemplate();
+  check("editing an existing template updates in place, no duplicate row", store.label_templates.length === 1, `count=${store.label_templates.length}`);
+  check("rename persisted", store.label_templates[0].name === "Small Shelf Tag (renamed)", store.label_templates[0].name);
+
+  // ---------------------------------------------------------
+  // Scan-to-print workflow
+  // ---------------------------------------------------------
+  section("Scan-to-print workflow");
+  // Give sku 10000001 a real template with all binding types to exercise
+  const savedTemplate = sandbox.state.labelTemplates.find(t => t.name.includes("Small Shelf Tag"));
+  savedTemplate.fields = [
+    { id: "pf1", type: "text", bind: "sku", x: 2, y: 2, w: 20, h: 5, fontSize: 8, align: "left" },
+    { id: "pf2", type: "text", bind: "unitValue", x: 2, y: 8, w: 20, h: 5, fontSize: 8, align: "left" },
+    { id: "pf3", type: "barcode", bind: "retailBarcode", x: 2, y: 14, w: 40, h: 10 },
+  ];
+
+  const targetItem = sandbox.state.inventory.find(i => i.sku === "10000001");
+  targetItem.retailBarcode = null; // force lazy-generation path
+
+  // Resolve by plain 8-digit SKU
+  check("resolveItemFromScan finds item by 8-digit SKU", sandbox.resolveItemFromScan("10000001") === targetItem);
+  // Resolve by 14-digit warehouse code (5-digit prefix + 8-digit sku + 1-digit suffix)
+  const warehouseCode = "00000" + "10000001" + "9";
+  check("resolveItemFromScan finds item by 14-digit warehouse code", sandbox.resolveItemFromScan(warehouseCode) === targetItem, warehouseCode);
+  // Resolve by retail EAN-13 (once generated)
+  const expectedRetail = sandbox.generateRetailBarcode("10000001");
+  check("resolveItemFromScan finds nothing yet by retail barcode (not generated)", sandbox.resolveItemFromScan(expectedRetail) === null);
+
+  await sandbox.handleLabelScan("10000001");
+  check("scanning generates and persists a retail barcode lazily", targetItem.retailBarcode === expectedRetail, targetItem.retailBarcode);
+  check("labelPrint state populated with resolved item", sandbox.state.labelPrint && sandbox.state.labelPrint.item === targetItem);
+  check("resolveItemFromScan now finds item by its retail barcode", sandbox.resolveItemFromScan(expectedRetail) === targetItem);
+
+  sandbox.state.labelPrint.templateId = savedTemplate.id;
+  const skuField = savedTemplate.fields[0];
+  check("resolvedFieldValue pulls real SKU from scanned item", sandbox.resolvedFieldValue(skuField) === "10000001");
+  const priceField = savedTemplate.fields[1];
+  check("resolvedFieldValue formats price with peso sign", sandbox.resolvedFieldValue(priceField).startsWith("₱"));
+
+  // Per-print override shouldn't touch the master inventory record
+  sandbox.state.labelPrint.overrides[skuField.id] = "OVERRIDDEN-DISPLAY";
+  check("override takes precedence over resolved value", sandbox.printFieldValue(skuField) === "OVERRIDDEN-DISPLAY");
+  check("override does NOT mutate the actual inventory item", targetItem.sku === "10000001");
+
+  sandbox.state.labelPrint.copies = 3;
+  await sandbox.triggerLabelPrint();
+  const printedHtml = sandbox._fakeElements["print-area"].innerHTML;
+  check("print output rendered with correct copy count", (printedHtml.match(/print-label-block/g) || []).length === 3, `blocks=${(printedHtml.match(/print-label-block/g)||[]).length}`);
+  check("print output uses the override, not the raw SKU", printedHtml.includes("OVERRIDDEN-DISPLAY"));
+  check("print output sized to the template's real mm dimensions", printedHtml.includes("width:50mm") && printedHtml.includes("height:25mm"), printedHtml.slice(0,200));
+  check("window.print() was invoked", sandbox._printCalled === true);
+
   section("Philippine timezone");
   const stamp = sandbox.fmt(0);
   check("fmt() returns YYYY-MM-DD HH:MM shape", /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(stamp), stamp);

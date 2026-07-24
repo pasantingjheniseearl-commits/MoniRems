@@ -254,12 +254,20 @@
   .barcode-row{display:flex;gap:10px;margin-top:10px;}
   @media(max-width:560px){.barcode-row{flex-direction:column;}}
 
-  ::selection{background:var(--accent);color:var(--on-accent);}
+  ::selection{background:var(--accent);color:var(--on-accent);}  #print-area{visibility:hidden;position:absolute;left:-9999px;top:0;}
+  .print-label-block{page-break-after:always;background:#fff;position:relative;overflow:hidden;}
+  .print-label-block:last-child{page-break-after:auto;}
+  @media print{
+    body > *:not(#print-area){display:none !important;}
+    #print-area{visibility:visible;position:static;left:auto;}
+    #print-area *{visibility:visible;}
+  }
 </style>
 </head>
 <body>
 <div class="stripe" id="stripe" style="display:none;"></div>
 <div id="app"></div>
+<div id="print-area"></div>
 
 <script>
 /* =============================================================
@@ -387,6 +395,9 @@ let state = {
   labelTemplates: [],
   labelEditor: null,       // { id, name, widthMm, heightMm, fields: [...] } while designing, else null
   labelSelectedFieldId: null,
+  labelsTab: "print",
+  labelScanBuffer: "",
+  labelPrint: null, // { templateId, item, overrides: {fieldId: value}, copies } once a SKU is resolved
   transactions: [],
   loginLogs: [],
   messages: [],
@@ -692,6 +703,7 @@ function render() {
     if (state.view === "lookup") mountLookupVirtualList();
     if (state.view === "transactions" && state.txTab === "stock") mountTxVirtualList();
     if (state.view === "labels" && state.labelEditor) renderLabelBarcodePreviews();
+    if (state.view === "labels" && !state.labelEditor && state.labelPrint) renderLabelPrintBarcodePreviews();
   }
 }
 function renderLoading() {
@@ -787,7 +799,7 @@ function renderShell() {
     ...(adjustAccess ? [{ key: "adjustments", label: "Adjustments", icon: ICONS.adjust }] : []),
     ...(admin ? [{ key: "locators", label: "Locators & Categories", icon: ICONS.map }] : []),
     ...(admin ? [{ key: "users", label: "Users", icon: ICONS.users }] : []),
-    ...(admin ? [{ key: "labels", label: "Labels", icon: ICONS.tag }] : []),
+    { key: "labels", label: "Labels", icon: ICONS.tag },
     ...(admin ? [{ key: "transactions", label: "Transaction Log", icon: ICONS.scroll }] : []),
     { key: "profile", label: "Profile", icon: ICONS.user },
   ];
@@ -851,7 +863,7 @@ function renderView() {
     case "adjustments": return canAdjust() ? renderAdjustments() : renderDashboard();
     case "locators": return isAdmin() ? renderLocators() : renderDashboard();
     case "users": return isAdmin() ? renderUsers() : renderDashboard();
-    case "labels": return isAdmin() ? renderLabels() : renderDashboard();
+    case "labels": return renderLabels();
     case "transactions": return isAdmin() ? renderTransactions() : renderDashboard();
     case "profile": return renderProfile();
     default: return renderDashboard();
@@ -1549,6 +1561,7 @@ let _scanBuffer = "";
 let _scanLastTime = 0;
 let _lookupDebounce = null;
 let _manualBarcodeDebounce = null;
+let _labelScanDebounce = null;
 const SCAN_GAP_MS = 30;
 
 function isEditableFocus() {
@@ -1565,9 +1578,15 @@ function scannerKeydownHandler(e) {
   // if it fires before anyone has clicked into a field.
   if (!isEditableFocus() && (e.key === "/" || e.key === "'")) { e.preventDefault(); e.stopPropagation(); }
   if (e.target && e.target.id === "barcode-manual-input") return; // manual box handles its own Enter
+  if (e.target && e.target.id === "label-scan-input") return; // manual box handles its own Enter
 
   if (e.key === "Enter") {
-    if (/^\d{14}$/.test(_scanBuffer)) {
+    if (state.view === "labels") {
+      if (/^\d{8}$/.test(_scanBuffer) || /^\d{13}$/.test(_scanBuffer) || /^\d{14}$/.test(_scanBuffer)) {
+        e.preventDefault();
+        handleLabelScan(_scanBuffer);
+      }
+    } else if (/^\d{14}$/.test(_scanBuffer)) {
       e.preventDefault();
       if (state.view === "lookup") handleLookupScan(_scanBuffer);
       else handleBarcodeInput(_scanBuffer, "scanner");
@@ -1611,7 +1630,7 @@ function deactivateScannerMode() {
   _scanBuffer = ""; _scanLastTime = 0;
 }
 function syncScannerMode() {
-  if (state.session && (state.view === "stock" || state.view === "lookup")) activateScannerMode();
+  if (state.session && (state.view === "stock" || state.view === "lookup" || (state.view === "labels" && state.labelsTab === "print"))) activateScannerMode();
   else deactivateScannerMode();
 }
 
@@ -2123,7 +2142,141 @@ function sampleValueForBind(bind) {
 function newFieldId() { return "f_" + Math.random().toString(36).slice(2, 9); }
 
 function renderLabels() {
-  return state.labelEditor ? renderLabelDesigner() : renderLabelList();
+  if (state.labelEditor) return renderLabelDesigner();
+  const admin = isAdmin();
+  return `
+    <div style="margin-bottom:16px;">
+      <h1 class="page-title">Labels</h1>
+      <p class="page-sub">Scan or type a SKU to print a shelf label${admin ? ", or manage your saved layouts" : ""}.</p>
+    </div>
+    ${admin ? `
+      <div class="tabs" style="margin-bottom:18px;max-width:320px;">
+        <button class="tab-btn ${state.labelsTab==='print'?'active':''}" data-action="set-labels-tab" data-tab="print">Print</button>
+        <button class="tab-btn ${state.labelsTab==='templates'?'active':''}" data-action="set-labels-tab" data-tab="templates">Templates</button>
+      </div>` : ""}
+    ${state.labelsTab === "templates" && admin ? renderLabelList() : renderLabelPrintTab()}
+  `;
+}
+
+function resolveItemFromScan(rawInput) {
+  const digits = String(rawInput).replace(/\D/g, "");
+  if (digits.length === 13) return state.inventory.find(i => i.retailBarcode === digits) || null;
+  if (digits.length === 14) return state.inventory.find(i => i.sku === digits.slice(5, 13)) || null;
+  if (digits.length === 8) return state.inventory.find(i => i.sku === digits) || null;
+  const raw = String(rawInput).trim();
+  return raw ? state.inventory.find(i => i.sku === raw) || null : null;
+}
+
+async function handleLabelScan(rawInput) {
+  const item = resolveItemFromScan(rawInput);
+  if (!item) { showToast(`No inventory item matches "${rawInput}"`, "danger"); return; }
+  if (!item.retailBarcode) {
+    const code = generateRetailBarcode(item.sku);
+    const { error } = await sb.from("inventory").update({ retail_barcode: code }).eq("sku", item.sku);
+    if (error) { showToast(`Couldn't generate retail barcode: ${error.message}`, "danger"); return; }
+    item.retailBarcode = code;
+  }
+  const keepTemplate = state.labelPrint ? state.labelPrint.templateId : (state.labelTemplates[0] ? state.labelTemplates[0].id : null);
+  state.labelPrint = { templateId: keepTemplate, item, overrides: {}, copies: 1 };
+  state.labelScanBuffer = "";
+  render();
+}
+
+function resolvedFieldValue(field) {
+  const item = state.labelPrint && state.labelPrint.item;
+  if (field.type === "barcode") return item ? (item.retailBarcode || generateRetailBarcode(item.sku)) : sampleValueForBind("retailBarcode");
+  if (field.bind === "static") return field.static || "";
+  if (!item) return sampleValueForBind(field.bind);
+  switch (field.bind) {
+    case "sku": return item.sku;
+    case "description": return item.description;
+    case "category": return item.category || "";
+    case "locator": return item.locator || "";
+    case "unitValue": return "₱" + Number(item.unitValue).toFixed(2);
+    case "retailBarcode": return item.retailBarcode || generateRetailBarcode(item.sku);
+    default: return "";
+  }
+}
+function printFieldValue(field) {
+  const ov = state.labelPrint.overrides[field.id];
+  return ov !== undefined ? ov : resolvedFieldValue(field);
+}
+
+function renderLabelPrintTab() {
+  const lp = state.labelPrint;
+  return `
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;">
+      <label class="field" style="width:260px;">
+        <span class="lbl">Template</span>
+        <select id="label-print-template">
+          ${state.labelTemplates.length === 0 ? `<option value="">No templates yet</option>` :
+            state.labelTemplates.map(t => `<option value="${t.id}" ${lp && lp.templateId===t.id?'selected':''}>${esc(t.name)} (${t.widthMm}×${t.heightMm}mm)</option>`).join("")}
+        </select>
+      </label>
+      <label class="field" style="flex:1;min-width:220px;">
+        <span class="lbl">Scan or type SKU / barcode</span>
+        <input id="label-scan-input" placeholder="Scan here, or type a SKU and press Enter" value="${esc(state.labelScanBuffer)}" />
+      </label>
+      <button class="btn btn-primary" data-action="submit-label-scan">${ICONS.search} Find</button>
+    </div>
+    ${state.labelTemplates.length === 0 ? `
+      <div class="card" style="text-align:center;padding:30px 20px;color:var(--muted);">
+        No label templates exist yet.${isAdmin() ? ` Switch to the Templates tab to create one.` : ` Ask an admin to create one first.`}
+      </div>` : !lp ? `
+      <div class="card" style="text-align:center;padding:30px 20px;color:var(--muted);">Scan or type a SKU to preview its label.</div>` : renderLabelPrintPreview(lp)}
+  `;
+}
+
+function renderLabelPrintPreview(lp) {
+  const t = state.labelTemplates.find(x => x.id === lp.templateId);
+  if (!t) return `<div class="card" style="color:var(--muted);">Pick a template above.</div>`;
+  const canvasW = Math.round(t.widthMm * LABEL_PX_PER_MM), canvasH = Math.round(t.heightMm * LABEL_PX_PER_MM);
+  return `
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
+      <div style="background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:20px;">
+        <div id="label-print-canvas" style="position:relative;width:${canvasW}px;height:${canvasH}px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.2);">
+          ${t.fields.map(f => renderLabelPrintField(f)).join("")}
+        </div>
+      </div>
+      <div class="card" style="width:320px;flex-shrink:0;">
+        <div style="font-weight:600;font-size:14px;">${esc(lp.item.sku)}</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">${esc(lp.item.description)}</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+          ${t.fields.filter(f => f.type === "text").map(f => `
+            <label class="field">
+              <span class="lbl">${LABEL_BIND_OPTIONS.find(o=>o.value===f.bind)?.label || f.bind}</span>
+              <input class="label-print-override" data-field-id="${f.id}" value="${esc(printFieldValue(f))}" />
+            </label>`).join("")}
+        </div>
+        <label class="field" style="margin-bottom:14px;"><span class="lbl">Copies</span><input id="label-print-copies" type="number" min="1" max="200" value="${lp.copies}" /></label>
+        <button class="btn btn-primary" style="width:100%;" data-action="print-label">${ICONS.print} Print ${lp.copies} label${lp.copies==1?'':'s'}</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderLabelPrintField(f) {
+  const left = Math.round(f.x * LABEL_PX_PER_MM), top = Math.round(f.y * LABEL_PX_PER_MM);
+  const w = Math.round(f.w * LABEL_PX_PER_MM), h = Math.round(f.h * LABEL_PX_PER_MM);
+  const baseStyle = `position:absolute;left:${left}px;top:${top}px;width:${w}px;height:${h}px;overflow:hidden;display:flex;align-items:center;background:#fff;`;
+  if (f.type === "barcode") {
+    return `<div style="${baseStyle}justify-content:center;"><svg class="label-print-barcode-svg" data-field-id="${f.id}" style="max-width:100%;max-height:100%;"></svg></div>`;
+  }
+  const align = f.align === "center" ? "center" : f.align === "right" ? "flex-end" : "flex-start";
+  return `<div class="label-print-text-box" data-field-id="${f.id}" style="${baseStyle}justify-content:${align};">
+    <span style="font-size:${f.fontSize||10}px;font-weight:${f.bold?700:400};color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:Arial,sans-serif;">${esc(printFieldValue(f))}</span>
+  </div>`;
+}
+function renderLabelPrintBarcodePreviews() {
+  if (typeof JsBarcode === "undefined" || !state.labelPrint) return;
+  const t = state.labelTemplates.find(x => x.id === state.labelPrint.templateId);
+  if (!t) return;
+  document.querySelectorAll(".label-print-barcode-svg").forEach(svg => {
+    const field = t.fields.find(f => f.id === svg.dataset.fieldId);
+    if (!field) return;
+    try { JsBarcode(svg, printFieldValue(field), { format: "EAN13", displayValue: true, fontSize: 10, margin: 2, height: 40 }); }
+    catch (e) { /* leave blank rather than crash */ }
+  });
 }
 
 function renderLabelList() {
@@ -2338,6 +2491,46 @@ async function saveLabelTemplate() {
   showToast("Template saved", "ok");
   render();
 }
+
+async function triggerLabelPrint() {
+  const lp = state.labelPrint;
+  const t = state.labelTemplates.find(x => x.id === lp.templateId);
+  if (!t) return showToast("Pick a template first", "danger");
+  if (t.fields.length === 0) return showToast("This template has no fields", "danger");
+
+  const labelHtml = (idx) => `
+    <div class="print-label-block" style="width:${t.widthMm}mm;height:${t.heightMm}mm;">
+      ${t.fields.map(f => {
+        const left = f.x, top = f.y, w = f.w, h = f.h;
+        const base = `position:absolute;left:${left}mm;top:${top}mm;width:${w}mm;height:${h}mm;overflow:hidden;display:flex;align-items:center;`;
+        if (f.type === "barcode") {
+          return `<div style="${base}justify-content:center;"><svg class="print-out-barcode-svg" data-idx="${idx}" data-field-id="${f.id}" style="max-width:100%;max-height:100%;"></svg></div>`;
+        }
+        const align = f.align === "center" ? "center" : f.align === "right" ? "flex-end" : "flex-start";
+        return `<div style="${base}justify-content:${align};"><span style="font-size:${f.fontSize||10}px;font-weight:${f.bold?700:400};color:#000;white-space:nowrap;overflow:hidden;font-family:Arial,sans-serif;">${esc(printFieldValue(f))}</span></div>`;
+      }).join("")}
+    </div>`;
+
+  const printArea = document.getElementById("print-area");
+  printArea.innerHTML = Array.from({ length: lp.copies }, (_, i) => labelHtml(i)).join("");
+
+  let pageStyle = document.getElementById("print-page-size-style");
+  if (!pageStyle) { pageStyle = document.createElement("style"); pageStyle.id = "print-page-size-style"; document.head.appendChild(pageStyle); }
+  pageStyle.textContent = `@page { size: ${t.widthMm}mm ${t.heightMm}mm; margin: 0; }`;
+
+  if (typeof JsBarcode !== "undefined") {
+    printArea.querySelectorAll(".print-out-barcode-svg").forEach(svg => {
+      const field = t.fields.find(f => f.id === svg.dataset.fieldId);
+      if (!field) return;
+      try { JsBarcode(svg, printFieldValue(field), { format: "EAN13", displayValue: true, fontSize: 10, margin: 2, height: field.h * 3 }); }
+      catch (e) { /* leave blank rather than block printing */ }
+    });
+  }
+
+  window.print();
+}
+
+
 
 /* ---------------------------------------------------------
    TRANSACTION LOG
@@ -2645,6 +2838,13 @@ function attachHandlers() {
     else if (action === "add-label-text-field") addLabelField("text");
     else if (action === "add-label-barcode-field") addLabelField("barcode");
     else if (action === "delete-label-field") deleteLabelField(el.dataset.id);
+    else if (action === "set-labels-tab") { state.labelsTab = el.dataset.tab; render(); }
+    else if (action === "submit-label-scan") {
+      const val = document.getElementById("label-scan-input").value.trim();
+      if (!val) { showToast("Scan or type a SKU first", "danger"); return; }
+      await handleLabelScan(val);
+    }
+    else if (action === "print-label") await triggerLabelPrint();
     else if (action === "confirm-yes") await runConfirmedAction();
     else if (action === "confirm-no") { state.confirm = null; render(); }
   };
@@ -2671,13 +2871,40 @@ function attachHandlers() {
       if (u) u.role = role;
       showToast("Access level updated", "ok");
     }
+    else if (e.target.id === "label-print-template") {
+      if (state.labelPrint) { state.labelPrint.templateId = e.target.value; state.labelPrint.overrides = {}; render(); }
+    }
     else if (e.target.id === "lbl-field-bind") { updateLabelField(e.target.dataset.id, { bind: e.target.value }); render(); }
     else if (e.target.id === "lbl-field-align") { updateLabelField(e.target.dataset.id, { align: e.target.value }); render(); }
     else if (e.target.id === "lbl-field-bold") { updateLabelField(e.target.dataset.id, { bold: e.target.checked }); render(); }
   };
 
   app.oninput = (e) => {
-    if (e.target.id === "lbl-field-static" || e.target.id === "lbl-field-fontsize" || e.target.id === "lbl-field-x" || e.target.id === "lbl-field-y" || e.target.id === "lbl-field-w" || e.target.id === "lbl-field-h") {
+    if (e.target.id === "label-scan-input") {
+      state.labelScanBuffer = e.target.value;
+      clearTimeout(_labelScanDebounce);
+      const digitLen = e.target.value.replace(/\D/g, "").length;
+      if (digitLen === 8 || digitLen === 13 || digitLen === 14) {
+        _labelScanDebounce = setTimeout(() => {
+          const el = document.getElementById("label-scan-input");
+          if (el && el.value.replace(/\D/g, "").length === digitLen) handleLabelScan(el.value.trim());
+        }, 120);
+      }
+    }
+    else if (e.target.classList.contains("label-print-override")) {
+      const fieldId = e.target.dataset.fieldId;
+      state.labelPrint.overrides[fieldId] = e.target.value;
+      const box = document.querySelector(`.label-print-text-box[data-field-id="${fieldId}"] span`);
+      if (box) box.textContent = e.target.value;
+    }
+    else if (e.target.id === "label-print-copies") {
+      const n = Math.max(1, Math.min(200, parseInt(e.target.value, 10) || 1));
+      state.labelPrint.copies = n;
+      const btn = document.querySelector('[data-action="print-label"]');
+      if (btn) btn.textContent = "";
+      if (btn) btn.innerHTML = `${ICONS.print} Print ${n} label${n===1?'':'s'}`;
+    }
+    else if (e.target.id === "lbl-field-static" || e.target.id === "lbl-field-fontsize" || e.target.id === "lbl-field-x" || e.target.id === "lbl-field-y" || e.target.id === "lbl-field-w" || e.target.id === "lbl-field-h") {
       const id = e.target.dataset.id;
       const prop = e.target.id.replace("lbl-field-", "");
       const keyMap = { static: "static", fontsize: "fontSize", x: "x", y: "y", w: "w", h: "h" };
@@ -2746,6 +2973,10 @@ function attachHandlers() {
     if (e.key === "Enter" && e.target.id === "barcode-manual-input") {
       e.preventDefault();
       document.querySelector('[data-action="submit-manual-barcode"]')?.click();
+    }
+    if (e.key === "Enter" && e.target.id === "label-scan-input") {
+      e.preventDefault();
+      document.querySelector('[data-action="submit-label-scan"]')?.click();
     }
   };
 }
