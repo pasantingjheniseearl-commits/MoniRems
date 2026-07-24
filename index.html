@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   :root{
@@ -298,6 +299,9 @@ const ICONS = {
   alert: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
   layers: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>`,
   wifi: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 20 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>`,
+  tag: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>`,
+  print: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>`,
+  move: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>`,
   wifiOff: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 4.17-2.65"/><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/><path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/><path d="M5 13a10 10 0 0 1 5.24-2.76"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>`,
   plus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
   trash: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
@@ -326,6 +330,24 @@ const ADJUSTMENT_REASONS = ["Damaged", "Expired", "Stolen / Shrinkage", "Physica
 
 function manilaDateKey(date) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+const RETAIL_BARCODE_PREFIX = "2050"; // matches the internal-use range verified against the sample tag
+function ean13CheckDigit(digits12) {
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    const d = parseInt(digits12[i], 10) || 0;
+    sum += (i % 2 === 0) ? d : d * 3;
+  }
+  return (10 - (sum % 10)) % 10;
+}
+function generateRetailBarcode(sku) {
+  const skuDigits = String(sku).replace(/\D/g, "").padStart(8, "0").slice(-8);
+  const base12 = RETAIL_BARCODE_PREFIX + skuDigits;
+  return base12 + String(ean13CheckDigit(base12));
+}
+function isValidEan13(code) {
+  if (!/^\d{13}$/.test(code)) return false;
+  return ean13CheckDigit(code.slice(0, 12)) === parseInt(code[12], 10);
 }
 function fmt(daysAgo = 0, h, m) {
   const d = new Date(Date.now() - daysAgo * 86400000);
@@ -362,6 +384,9 @@ let state = {
   locators: [],
   inventory: [],
   skuLocations: [],
+  labelTemplates: [],
+  labelEditor: null,       // { id, name, widthMm, heightMm, fields: [...] } while designing, else null
+  labelSelectedFieldId: null,
   transactions: [],
   loginLogs: [],
   messages: [],
@@ -411,10 +436,13 @@ function syncSearchCache(item) {
   return item;
 }
 function mapInvRow(i) {
-  return syncSearchCache({ sku: i.sku, description: i.description, category: i.category, locator: i.locator, qty: i.qty, unitValue: Number(i.unit_value), reorder: i.reorder });
+  return syncSearchCache({ sku: i.sku, description: i.description, category: i.category, locator: i.locator, qty: i.qty, unitValue: Number(i.unit_value), reorder: i.reorder, retailBarcode: i.retail_barcode || null });
 }
 function mapSkuLocRow(l) {
   return { sku: l.sku, locator: l.locator, qty: l.qty };
+}
+function mapLabelTemplate(t) {
+  return { id: t.id, name: t.name, widthMm: Number(t.width_mm), heightMm: Number(t.height_mm), fields: t.fields || [] };
 }
 function getSkuLocations(sku) {
   return state.skuLocations.filter(l => l.sku === sku);
@@ -438,12 +466,13 @@ async function fetchAllRows(table, orderCol) {
   return { data: all, error: null };
 }
 async function loadAllData() {
-  const [profilesRes, categoriesRes, locatorsRes, inventoryRes, skuLocRes, txRes, adjRes, logsRes, msgRes] = await Promise.all([
+  const [profilesRes, categoriesRes, locatorsRes, inventoryRes, skuLocRes, labelRes, txRes, adjRes, logsRes, msgRes] = await Promise.all([
     sb.from("profiles").select("*").order("name"),
     sb.from("categories").select("*").order("name"),
     sb.from("locators").select("*").order("code"),
     fetchAllRows("inventory", "sku"),
     sb.from("sku_locations").select("*"),
+    sb.from("label_templates").select("*").order("name"),
     sb.from("transactions").select("*").order("created_at", { ascending: false }).limit(1000),
     sb.from("adjustments").select("*").order("created_at", { ascending: false }).limit(500),
     sb.from("login_logs").select("*").order("created_at", { ascending: false }).limit(300),
@@ -454,6 +483,7 @@ async function loadAllData() {
   state.locators = (locatorsRes.data || []).map(l => ({ code: l.code, zone: l.zone, description: l.description }));
   state.inventory = (inventoryRes.data || []).map(mapInvRow);
   state.skuLocations = (skuLocRes.data || []).map(mapSkuLocRow);
+  state.labelTemplates = (labelRes.data || []).map(mapLabelTemplate);
   state.transactions = (txRes.data || []).map(mapTxRow);
   state.adjustments = (adjRes.data || []).map(mapAdjRow);
   state.loginLogs = (logsRes.data || []).map(l => ({ user: l.user_name, role: l.role, action: l.action, timestamp: l.timestamp }));
@@ -661,6 +691,7 @@ function render() {
   if (state.session) {
     if (state.view === "lookup") mountLookupVirtualList();
     if (state.view === "transactions" && state.txTab === "stock") mountTxVirtualList();
+    if (state.view === "labels" && state.labelEditor) renderLabelBarcodePreviews();
   }
 }
 function renderLoading() {
@@ -756,6 +787,7 @@ function renderShell() {
     ...(adjustAccess ? [{ key: "adjustments", label: "Adjustments", icon: ICONS.adjust }] : []),
     ...(admin ? [{ key: "locators", label: "Locators & Categories", icon: ICONS.map }] : []),
     ...(admin ? [{ key: "users", label: "Users", icon: ICONS.users }] : []),
+    ...(admin ? [{ key: "labels", label: "Labels", icon: ICONS.tag }] : []),
     ...(admin ? [{ key: "transactions", label: "Transaction Log", icon: ICONS.scroll }] : []),
     { key: "profile", label: "Profile", icon: ICONS.user },
   ];
@@ -819,6 +851,7 @@ function renderView() {
     case "adjustments": return canAdjust() ? renderAdjustments() : renderDashboard();
     case "locators": return isAdmin() ? renderLocators() : renderDashboard();
     case "users": return isAdmin() ? renderUsers() : renderDashboard();
+    case "labels": return isAdmin() ? renderLabels() : renderDashboard();
     case "transactions": return isAdmin() ? renderTransactions() : renderDashboard();
     case "profile": return renderProfile();
     default: return renderDashboard();
@@ -1328,7 +1361,7 @@ async function importCSVFile(file) {
 /* Admin: add / edit / delete / reset (all qty-changing edits are
    mirrored into state.adjustments for the audit trail). */
 function openEditItem(sku) {
-  state.editItem = sku ? { ...state.inventory.find(i => i.sku === sku) } : { sku:"", description:"", category: state.categories[0]||"", locator: state.locators[0]?.code||"", qty:0, unitValue:0, reorder:0, _isNew:true };
+  state.editItem = sku ? { ...state.inventory.find(i => i.sku === sku) } : { sku:"", description:"", category: state.categories[0]||"", locator: state.locators[0]?.code||"", qty:0, unitValue:0, reorder:0, retailBarcode:"", _isNew:true };
   render();
 }
 function renderEditItemModal() {
@@ -1353,6 +1386,14 @@ function renderEditItemModal() {
             <label class="field"><span class="lbl">Unit value (₱)</span><input id="ei-value" type="number" min="0" step="0.01" value="${it.unitValue}" /></label>
             <label class="field"><span class="lbl">Reorder level</span><input id="ei-reorder" type="number" min="0" value="${it.reorder}" /></label>
           </div>
+          <label class="field">
+            <span class="lbl">Retail barcode (EAN-13, for printed shelf labels)</span>
+            <div style="display:flex;gap:8px;">
+              <input id="ei-retail-barcode" value="${esc(it.retailBarcode || '')}" placeholder="Auto-generated when first printed" style="flex:1;" />
+              <button type="button" class="btn btn-ghost btn-sm" data-action="generate-retail-barcode">Generate</button>
+            </div>
+            <span style="font-size:11px;color:var(--dim);">Separate from the warehouse scan code used in Stock In/Out. Leave blank to auto-generate the first time this SKU is used on a label, or set one manually if a physical tag with a specific code already exists.</span>
+          </label>
           ${!isNew ? `<p style="font-size:11px;color:var(--dim);margin:0;">Changing the quantity here logs a "Physical Count Correction" entry in the audit trail automatically.</p>` : ""}
         </div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
@@ -1366,6 +1407,10 @@ async function saveEditItem() {
   const it = state.editItem;
   const sku = document.getElementById("ei-sku").value.trim();
   if (!sku) return showToast("SKU is required", "danger");
+  const retailBarcodeRaw = document.getElementById("ei-retail-barcode").value.trim();
+  if (retailBarcodeRaw && !isValidEan13(retailBarcodeRaw)) {
+    return showToast("Retail barcode must be a valid 13-digit EAN-13 (correct check digit)", "danger");
+  }
   const payload = {
     sku,
     description: document.getElementById("ei-desc").value.trim(),
@@ -1374,21 +1419,28 @@ async function saveEditItem() {
     qty: parseInt(document.getElementById("ei-qty").value,10) || 0,
     unitValue: parseFloat(document.getElementById("ei-value").value) || 0,
     reorder: parseInt(document.getElementById("ei-reorder").value,10) || 0,
+    retailBarcode: retailBarcodeRaw || null,
   };
   const dbPayload = { sku: payload.sku, description: payload.description, category: payload.category || null,
-    locator: payload.locator || null, qty: payload.qty, unit_value: payload.unitValue, reorder: payload.reorder };
+    locator: payload.locator || null, qty: payload.qty, unit_value: payload.unitValue, reorder: payload.reorder,
+    retail_barcode: payload.retailBarcode };
+  const friendlyDupeError = (error) => {
+    if (error.code !== "23505") return error.message;
+    if (/retail_barcode/i.test(error.message)) return "That retail barcode is already assigned to another SKU";
+    return "That SKU already exists";
+  };
 
   if (it._isNew) {
     if (state.inventory.some(i => i.sku === sku)) return showToast("That SKU already exists", "danger");
     const { error } = await sb.from("inventory").insert(dbPayload);
-    if (error) { showToast(error.code === "23505" ? "That SKU already exists" : error.message, "danger"); return; }
+    if (error) { showToast(friendlyDupeError(error), "danger"); return; }
     state.inventory.push(syncSearchCache(payload));
     showToast("Item added", "ok");
   } else {
     const existing = state.inventory.find(i => i.sku === it.sku);
     const qtyBefore = existing.qty;
     const { error } = await sb.from("inventory").update(dbPayload).eq("sku", it.sku);
-    if (error) { showToast(error.message, "danger"); return; }
+    if (error) { showToast(friendlyDupeError(error), "danger"); return; }
     Object.assign(existing, payload);
     syncSearchCache(existing);
     if (payload.qty !== qtyBefore) {
@@ -1464,6 +1516,11 @@ async function runConfirmedAction() {
     if (error) { showToast(error.message, "danger"); state.confirm = null; render(); return; }
     state.categories = state.categories.filter(cat => cat !== c.payload);
     showToast("Category removed", "ok");
+  } else if (c.type === "delete-label-template") {
+    const { error } = await sb.from("label_templates").delete().eq("id", c.payload);
+    if (error) { showToast(error.message, "danger"); state.confirm = null; render(); return; }
+    state.labelTemplates = state.labelTemplates.filter(t => t.id !== c.payload);
+    showToast("Template deleted", "ok");
   }
   state.confirm = null;
   render();
@@ -2029,6 +2086,260 @@ function renderUsers() {
 }
 
 /* ---------------------------------------------------------
+   LABEL TEMPLATES — designer for printed shelf/retail tags
+   -----------------------------------------------------------
+   A template is { id, name, widthMm, heightMm, fields[] }.
+   Each field is either:
+     { type:"text", bind, static, x, y, w, h, fontSize, bold, align }
+     { type:"barcode", bind:"retailBarcode", x, y, w, h }
+   All positions/sizes are in millimeters — real physical units,
+   independent of screen zoom. LABEL_PX_PER_MM controls on-screen
+   editing scale only; printing (Phase 4) uses the mm values
+   directly via CSS so the physical output is exact regardless of
+   this constant.
+--------------------------------------------------------- */
+const LABEL_PX_PER_MM = 6;
+const LABEL_SAMPLE = { sku: "10112345", description: "Sample Product Description", category: "MISC", locator: "001", unitValue: 1234.56 };
+const LABEL_BIND_OPTIONS = [
+  { value: "static", label: "Static text" },
+  { value: "sku", label: "SKU" },
+  { value: "description", label: "Description" },
+  { value: "category", label: "Category" },
+  { value: "locator", label: "Location" },
+  { value: "unitValue", label: "Price" },
+  { value: "retailBarcode", label: "Retail barcode (text)" },
+];
+function sampleValueForBind(bind) {
+  switch (bind) {
+    case "sku": return LABEL_SAMPLE.sku;
+    case "description": return LABEL_SAMPLE.description;
+    case "category": return LABEL_SAMPLE.category;
+    case "locator": return LABEL_SAMPLE.locator;
+    case "unitValue": return "₱" + LABEL_SAMPLE.unitValue.toFixed(2);
+    case "retailBarcode": return generateRetailBarcode(LABEL_SAMPLE.sku);
+    default: return "";
+  }
+}
+function newFieldId() { return "f_" + Math.random().toString(36).slice(2, 9); }
+
+function renderLabels() {
+  return state.labelEditor ? renderLabelDesigner() : renderLabelList();
+}
+
+function renderLabelList() {
+  return `
+    <div style="margin-bottom:20px;">
+      <h1 class="page-title">Label Templates</h1>
+      <p class="page-sub">Design reusable label layouts for your Citizen CL-S700, then print them from Inventory Lookup.</p>
+    </div>
+    <button class="btn btn-primary" style="margin-bottom:16px;" data-action="new-label-template">${ICONS.plus} New template</button>
+    ${state.labelTemplates.length === 0 ? `
+      <div class="card" style="text-align:center;padding:40px 20px;color:var(--muted);">No label templates yet — create one to get started.</div>` : `
+      <div class="grid grid-3">
+        ${state.labelTemplates.map(t => `
+          <div class="card">
+            <div style="font-weight:600;font-size:14px;">${esc(t.name)}</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px;">${t.widthMm}mm × ${t.heightMm}mm · ${t.fields.length} field${t.fields.length===1?'':'s'}</div>
+            <div style="display:flex;gap:8px;margin-top:14px;">
+              <button class="btn btn-ghost btn-sm" style="flex:1;" data-action="edit-label-template" data-id="${t.id}">Edit</button>
+              <button class="icon-btn edit" data-action="duplicate-label-template" data-id="${t.id}" title="Duplicate">${ICONS.layers}</button>
+              <button class="icon-btn" data-action="delete-label-template" data-id="${t.id}" title="Delete">${ICONS.trash}</button>
+            </div>
+          </div>`).join("")}
+      </div>`}
+  `;
+}
+
+function renderLabelField(f, selected) {
+  const left = Math.round(f.x * LABEL_PX_PER_MM), top = Math.round(f.y * LABEL_PX_PER_MM);
+  const w = Math.round(f.w * LABEL_PX_PER_MM), h = Math.round(f.h * LABEL_PX_PER_MM);
+  const baseStyle = `position:absolute;left:${left}px;top:${top}px;width:${w}px;height:${h}px;cursor:move;
+    border:1px dashed ${selected ? 'var(--accent)' : 'var(--dim)'};${selected ? 'z-index:5;box-shadow:0 0 0 1px var(--accent);' : ''}
+    overflow:hidden;display:flex;align-items:center;`;
+  if (f.type === "barcode") {
+    return `<div class="label-field" data-field-id="${f.id}" style="${baseStyle}justify-content:center;background:#fff;">
+      <svg class="label-barcode-svg" data-field-id="${f.id}" style="max-width:100%;max-height:100%;"></svg>
+    </div>`;
+  }
+  const text = f.bind === "static" ? (f.static || "Static text") : sampleValueForBind(f.bind);
+  const align = f.align === "center" ? "center" : f.align === "right" ? "flex-end" : "flex-start";
+  return `<div class="label-field" data-field-id="${f.id}" style="${baseStyle}justify-content:${align};background:#fff;">
+    <span style="font-size:${f.fontSize||10}px;font-weight:${f.bold?700:400};color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:Arial,sans-serif;">${esc(text)}</span>
+  </div>`;
+}
+
+function renderLabelDesigner() {
+  const t = state.labelEditor;
+  const sel = t.fields.find(f => f.id === state.labelSelectedFieldId) || null;
+  const canvasW = Math.round(t.widthMm * LABEL_PX_PER_MM), canvasH = Math.round(t.heightMm * LABEL_PX_PER_MM);
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <label class="field" style="width:220px;"><span class="lbl">Template name</span><input id="lbl-name" value="${esc(t.name)}" /></label>
+        <label class="field" style="width:110px;"><span class="lbl">Width (mm)</span><input id="lbl-width" type="number" min="10" step="0.5" value="${t.widthMm}" /></label>
+        <label class="field" style="width:110px;"><span class="lbl">Height (mm)</span><input id="lbl-height" type="number" min="10" step="0.5" value="${t.heightMm}" /></label>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" data-action="close-label-editor">Cancel</button>
+        <button class="btn btn-primary" data-action="save-label-template">${ICONS.plus} Save template</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <button class="btn btn-ghost btn-sm" data-action="add-label-text-field">${ICONS.plus} Text field</button>
+      <button class="btn btn-ghost btn-sm" data-action="add-label-barcode-field">${ICONS.tag} Barcode field</button>
+      <span style="font-size:11px;color:var(--dim);align-self:center;margin-left:4px;">Drag a field to move it. Click to select and edit its properties.</span>
+    </div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
+      <div style="background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:20px;overflow:auto;">
+        <div id="label-canvas" style="position:relative;width:${canvasW}px;height:${canvasH}px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.2);">
+          ${t.fields.map(f => renderLabelField(f, f.id === state.labelSelectedFieldId)).join("")}
+        </div>
+      </div>
+      <div class="card" style="width:280px;flex-shrink:0;">
+        ${!sel ? `<p style="font-size:12.5px;color:var(--dim);margin:0;">Select a field on the canvas to edit its properties, or add a new one above.</p>` : renderLabelFieldProps(sel)}
+      </div>
+    </div>
+  `;
+}
+
+function renderLabelFieldProps(f) {
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">${f.type === "barcode" ? "Barcode field" : "Text field"}</span>
+      <button class="icon-btn" data-action="delete-label-field" data-id="${f.id}" title="Delete field">${ICONS.trash}</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      ${f.type === "text" ? `
+        <label class="field"><span class="lbl">Content</span>
+          <select id="lbl-field-bind" data-id="${f.id}">
+            ${LABEL_BIND_OPTIONS.map(o => `<option value="${o.value}" ${f.bind===o.value?'selected':''}>${o.label}</option>`).join("")}
+          </select>
+        </label>
+        ${f.bind === "static" ? `<label class="field"><span class="lbl">Text</span><input id="lbl-field-static" data-id="${f.id}" value="${esc(f.static||'')}" /></label>` : ""}
+        <div class="grid grid-2" style="gap:8px;">
+          <label class="field"><span class="lbl">Font size (pt)</span><input id="lbl-field-fontsize" data-id="${f.id}" type="number" min="4" max="72" value="${f.fontSize||10}" /></label>
+          <label class="field"><span class="lbl">Align</span>
+            <select id="lbl-field-align" data-id="${f.id}">
+              <option value="left" ${f.align==='left'?'selected':''}>Left</option>
+              <option value="center" ${f.align==='center'?'selected':''}>Center</option>
+              <option value="right" ${f.align==='right'?'selected':''}>Right</option>
+            </select>
+          </label>
+        </div>
+        <label class="checkbox-row"><input id="lbl-field-bold" data-id="${f.id}" type="checkbox" ${f.bold?'checked':''} style="width:auto;" /> Bold</label>
+      ` : `<p style="font-size:12px;color:var(--muted);margin:0;">Encodes the item's retail barcode (EAN-13). Generated automatically the first time a SKU is printed.</p>`}
+      <div class="grid grid-2" style="gap:8px;">
+        <label class="field"><span class="lbl">X (mm)</span><input id="lbl-field-x" data-id="${f.id}" type="number" step="0.5" value="${f.x}" /></label>
+        <label class="field"><span class="lbl">Y (mm)</span><input id="lbl-field-y" data-id="${f.id}" type="number" step="0.5" value="${f.y}" /></label>
+        <label class="field"><span class="lbl">Width (mm)</span><input id="lbl-field-w" data-id="${f.id}" type="number" step="0.5" min="2" value="${f.w}" /></label>
+        <label class="field"><span class="lbl">Height (mm)</span><input id="lbl-field-h" data-id="${f.id}" type="number" step="0.5" min="2" value="${f.h}" /></label>
+      </div>
+    </div>
+  `;
+}
+
+function renderLabelBarcodePreviews() {
+  if (typeof JsBarcode === "undefined") return;
+  document.querySelectorAll(".label-barcode-svg").forEach(svg => {
+    try {
+      JsBarcode(svg, sampleValueForBind("retailBarcode"), { format: "EAN13", displayValue: true, fontSize: 10, margin: 2, height: 40 });
+    } catch (e) { /* invalid sample — leave blank rather than crash the designer */ }
+  });
+}
+
+function addLabelField(type) {
+  const t = state.labelEditor;
+  const n = t.fields.length;
+  const field = type === "barcode"
+    ? { id: newFieldId(), type: "barcode", bind: "retailBarcode", x: 5 + (n % 3) * 3, y: 5 + (n % 3) * 3, w: 40, h: 15 }
+    : { id: newFieldId(), type: "text", bind: "description", static: "", x: 5 + (n % 3) * 3, y: 5 + (n % 3) * 3, w: 35, h: 8, fontSize: 10, bold: false, align: "left" };
+  t.fields.push(field);
+  state.labelSelectedFieldId = field.id;
+  render();
+}
+function updateLabelField(id, patch) {
+  const t = state.labelEditor;
+  const f = t.fields.find(x => x.id === id);
+  if (f) Object.assign(f, patch);
+}
+function patchLabelFieldBox(id) {
+  const f = state.labelEditor.fields.find(x => x.id === id);
+  const box = document.querySelector(`.label-field[data-field-id="${id}"]`);
+  if (!f || !box) return;
+  box.style.left = Math.round(f.x * LABEL_PX_PER_MM) + "px";
+  box.style.top = Math.round(f.y * LABEL_PX_PER_MM) + "px";
+  box.style.width = Math.round(f.w * LABEL_PX_PER_MM) + "px";
+  box.style.height = Math.round(f.h * LABEL_PX_PER_MM) + "px";
+  if (f.type === "text") {
+    const span = box.querySelector("span");
+    if (span) {
+      span.textContent = f.bind === "static" ? (f.static || "Static text") : sampleValueForBind(f.bind);
+      span.style.fontSize = (f.fontSize || 10) + "px";
+    }
+  }
+}
+function deleteLabelField(id) {
+  const t = state.labelEditor;
+  t.fields = t.fields.filter(f => f.id !== id);
+  if (state.labelSelectedFieldId === id) state.labelSelectedFieldId = null;
+  render();
+}
+
+let _labelDrag = null;
+function startLabelFieldDrag(e) {
+  const box = e.target.closest(".label-field");
+  if (!box) return;
+  const id = box.dataset.fieldId;
+  state.labelSelectedFieldId = id;
+  const f = state.labelEditor.fields.find(x => x.id === id);
+  if (!f) return;
+  _labelDrag = { id, startX: e.clientX, startY: e.clientY, origX: f.x, origY: f.y };
+  document.addEventListener("mousemove", onLabelFieldDrag);
+  document.addEventListener("mouseup", endLabelFieldDrag);
+  render();
+}
+function onLabelFieldDrag(e) {
+  if (!_labelDrag) return;
+  const dxMm = (e.clientX - _labelDrag.startX) / LABEL_PX_PER_MM;
+  const dyMm = (e.clientY - _labelDrag.startY) / LABEL_PX_PER_MM;
+  const t = state.labelEditor;
+  const f = t.fields.find(x => x.id === _labelDrag.id);
+  if (!f) return;
+  const canvas = document.getElementById("label-canvas");
+  const maxX = canvas ? (canvas.offsetWidth / LABEL_PX_PER_MM - f.w) : 999;
+  const maxY = canvas ? (canvas.offsetHeight / LABEL_PX_PER_MM - f.h) : 999;
+  f.x = Math.max(0, Math.min(maxX, Math.round((_labelDrag.origX + dxMm) * 2) / 2));
+  f.y = Math.max(0, Math.min(maxY, Math.round((_labelDrag.origY + dyMm) * 2) / 2));
+  const box = document.querySelector(`.label-field[data-field-id="${_labelDrag.id}"]`);
+  if (box) { box.style.left = Math.round(f.x * LABEL_PX_PER_MM) + "px"; box.style.top = Math.round(f.y * LABEL_PX_PER_MM) + "px"; }
+}
+function endLabelFieldDrag() {
+  document.removeEventListener("mousemove", onLabelFieldDrag);
+  document.removeEventListener("mouseup", endLabelFieldDrag);
+  if (_labelDrag) { _labelDrag = null; render(); }
+}
+
+async function saveLabelTemplate() {
+  const t = state.labelEditor;
+  const name = document.getElementById("lbl-name").value.trim();
+  const widthMm = parseFloat(document.getElementById("lbl-width").value);
+  const heightMm = parseFloat(document.getElementById("lbl-height").value);
+  if (!name) return showToast("Template name is required", "danger");
+  if (!widthMm || !heightMm || widthMm <= 0 || heightMm <= 0) return showToast("Enter a valid width and height", "danger");
+  t.name = name; t.widthMm = widthMm; t.heightMm = heightMm;
+  const isNew = !state.labelTemplates.some(x => x.id === t.id);
+  const dbPayload = { id: t.id, name: t.name, width_mm: t.widthMm, height_mm: t.heightMm, fields: t.fields, updated_at: fmt(0) };
+  const { error } = await sb.from("label_templates").upsert(dbPayload, { onConflict: "id" });
+  if (error) { showToast(error.message, "danger"); return; }
+  if (isNew) state.labelTemplates.push({ id: t.id, name: t.name, widthMm: t.widthMm, heightMm: t.heightMm, fields: t.fields });
+  else { const existing = state.labelTemplates.find(x => x.id === t.id); Object.assign(existing, { name: t.name, widthMm: t.widthMm, heightMm: t.heightMm, fields: t.fields }); }
+  state.labelEditor = null;
+  state.labelSelectedFieldId = null;
+  showToast("Template saved", "ok");
+  render();
+}
+
+/* ---------------------------------------------------------
    TRANSACTION LOG
    "Stock movements" is virtualized (see mountTxVirtualList) so
    it stays fast no matter how many entries accumulate.
@@ -2293,7 +2604,47 @@ function attachHandlers() {
     else if (action === "delete-item") askConfirm("Delete this SKU?", `${el.dataset.sku} will be permanently removed from inventory.`, "delete-item", el.dataset.sku, "Delete");
     else if (action === "reset-qty") askConfirm("Reset all quantities?", "Every SKU's on-hand quantity will be set to 0. Each change is logged to the audit trail as a Physical Count Correction.", "reset-qty", null, "Reset all");
     else if (action === "close-edit-item") { state.editItem = null; render(); }
+    else if (action === "generate-retail-barcode") {
+      const skuVal = document.getElementById("ei-sku").value.trim();
+      if (!skuVal) { showToast("Enter a SKU first", "danger"); return; }
+      const bc = generateRetailBarcode(skuVal);
+      const dupe = state.inventory.find(i => i.retailBarcode === bc && i.sku !== skuVal);
+      if (dupe) { showToast(`Generated code collides with ${dupe.sku} — this shouldn't normally happen, check manually`, "danger"); return; }
+      document.getElementById("ei-retail-barcode").value = bc;
+    }
     else if (action === "save-edit-item") await saveEditItem();
+    else if (action === "new-label-template") {
+      state.labelEditor = { id: "lbl_" + Math.random().toString(36).slice(2,9), name: "Untitled template", widthMm: 50.8, heightMm: 25.4, fields: [] };
+      state.labelSelectedFieldId = null;
+      render();
+    }
+    else if (action === "edit-label-template") {
+      const t = state.labelTemplates.find(x => x.id === el.dataset.id);
+      if (!t) return;
+      state.labelEditor = { id: t.id, name: t.name, widthMm: t.widthMm, heightMm: t.heightMm, fields: JSON.parse(JSON.stringify(t.fields)) };
+      state.labelSelectedFieldId = null;
+      render();
+    }
+    else if (action === "duplicate-label-template") {
+      const t = state.labelTemplates.find(x => x.id === el.dataset.id);
+      if (!t) return;
+      const copy = { id: "lbl_" + Math.random().toString(36).slice(2,9), name: t.name + " (copy)", width_mm: t.widthMm, height_mm: t.heightMm, fields: JSON.parse(JSON.stringify(t.fields)) };
+      const { error } = await sb.from("label_templates").insert(copy);
+      if (error) { showToast(error.message, "danger"); return; }
+      state.labelTemplates.push(mapLabelTemplate(copy));
+      showToast("Template duplicated", "ok");
+      render();
+    }
+    else if (action === "delete-label-template") {
+      const t = state.labelTemplates.find(x => x.id === el.dataset.id);
+      if (!t) return;
+      askConfirm("Delete template?", `Delete "${t.name}"? This can't be undone.`, "delete-label-template", t.id, "Delete");
+    }
+    else if (action === "close-label-editor") { state.labelEditor = null; state.labelSelectedFieldId = null; render(); }
+    else if (action === "save-label-template") await saveLabelTemplate();
+    else if (action === "add-label-text-field") addLabelField("text");
+    else if (action === "add-label-barcode-field") addLabelField("barcode");
+    else if (action === "delete-label-field") deleteLabelField(el.dataset.id);
     else if (action === "confirm-yes") await runConfirmedAction();
     else if (action === "confirm-no") { state.confirm = null; render(); }
   };
@@ -2320,10 +2671,21 @@ function attachHandlers() {
       if (u) u.role = role;
       showToast("Access level updated", "ok");
     }
+    else if (e.target.id === "lbl-field-bind") { updateLabelField(e.target.dataset.id, { bind: e.target.value }); render(); }
+    else if (e.target.id === "lbl-field-align") { updateLabelField(e.target.dataset.id, { align: e.target.value }); render(); }
+    else if (e.target.id === "lbl-field-bold") { updateLabelField(e.target.dataset.id, { bold: e.target.checked }); render(); }
   };
 
   app.oninput = (e) => {
-    if (e.target.id === "lookup-q") {
+    if (e.target.id === "lbl-field-static" || e.target.id === "lbl-field-fontsize" || e.target.id === "lbl-field-x" || e.target.id === "lbl-field-y" || e.target.id === "lbl-field-w" || e.target.id === "lbl-field-h") {
+      const id = e.target.dataset.id;
+      const prop = e.target.id.replace("lbl-field-", "");
+      const keyMap = { static: "static", fontsize: "fontSize", x: "x", y: "y", w: "w", h: "h" };
+      const isNumeric = prop !== "static";
+      updateLabelField(id, { [keyMap[prop]]: isNumeric ? (parseFloat(e.target.value) || 0) : e.target.value });
+      patchLabelFieldBox(id);
+    }
+    else if (e.target.id === "lookup-q") {
       state.lookupQ = e.target.value;
       clearTimeout(_lookupDebounce);
       _lookupDebounce = setTimeout(updateLookupResults, 150);
@@ -2370,6 +2732,10 @@ function attachHandlers() {
         }
       }
     }
+  };
+
+  app.onmousedown = (e) => {
+    if (e.target.closest(".label-field")) startLabelFieldDrag(e);
   };
 
   app.onkeydown = (e) => {
