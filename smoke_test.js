@@ -153,6 +153,7 @@ sandbox.document = {
   head: makeFakeElement(),
 };
 sandbox.window.print = () => { sandbox._printCalled = true; };
+sandbox.JsBarcode = function () { /* stub: real barcode rendering isn't testable outside a browser; presence alone satisfies the lazy-load check */ };
 sandbox._fakeElements["print-area"] = makeFakeElement();
 
 vm.createContext(sandbox);
@@ -169,7 +170,7 @@ try {
 // (and calling functions retrieved the same way) affects real app state.
 for (const name of ["state", "submitStock", "importCSVFile", "parseCSV", "fmt", "getSkuLocations",
   "generateRetailBarcode", "isValidEan13", "sampleValueForBind", "addLabelField", "updateLabelField", "deleteLabelField", "saveLabelTemplate", "newFieldId",
-  "resolveItemFromScan", "handleLabelScan", "resolvedFieldValue", "printFieldValue", "triggerLabelPrint", "barcodeRenderOptions"]) {
+  "resolveItemFromScan", "handleLabelScan", "resolvedFieldValue", "printFieldValue", "triggerLabelPrint", "barcodeRenderOptions", "minBarcodeFieldWidthMm"]) {
   sandbox[name] = vm.runInContext(name, sandbox);
 }
 
@@ -337,7 +338,7 @@ async function main() {
   savedTemplate.fields = [
     { id: "pf1", type: "text", bind: "sku", x: 2, y: 2, w: 20, h: 5, fontSize: 8, align: "left" },
     { id: "pf2", type: "text", bind: "unitValue", x: 2, y: 8, w: 20, h: 5, fontSize: 8, align: "left" },
-    { id: "pf3", type: "barcode", bind: "retailBarcode", x: 2, y: 14, w: 40, h: 10 },
+    { id: "pf3", type: "barcode", bind: "retailBarcode", x: 2, y: 14, w: 52, h: 22 },
   ];
 
   const targetItem = sandbox.state.inventory.find(i => i.sku === "10000001");
@@ -375,6 +376,23 @@ async function main() {
   check("print output uses the override, not the raw SKU", printedHtml.includes("OVERRIDDEN-DISPLAY"));
   check("print output sized to the template's real mm dimensions", printedHtml.includes("width:50mm") && printedHtml.includes("height:25mm"), printedHtml.slice(0,200));
   check("window.print() was invoked", sandbox._printCalled === true);
+
+  // ---------------------------------------------------------
+  // Regression test for the real bug: a barcode field narrower
+  // than the calculated minimum must block printing outright,
+  // not silently produce an unreadable barcode.
+  // ---------------------------------------------------------
+  section("Undersized barcode field is blocked, not silently printed");
+  check("minimum width calculation matches known-good EAN-13 math (~45.2mm)", Math.abs(sandbox.minBarcodeFieldWidthMm() - 45.2) < 0.1, sandbox.minBarcodeFieldWidthMm());
+  const undersizedTemplate = { id: "lbl_undersized", name: "Bad template", widthMm: 101.6, heightMm: 76.2, dpi: 300,
+    fields: [{ id: "bad1", type: "barcode", bind: "retailBarcode", x: 2, y: 2, w: 30, h: 15 }] }; // 30mm < 45.2mm minimum
+  sandbox.state.labelTemplates.push(undersizedTemplate);
+  sandbox.state.labelPrint = { templateId: undersizedTemplate.id, item: targetItem, overrides: {}, copies: 1 };
+  sandbox._fakeElements["print-area"].innerHTML = ""; // reset from previous test
+  sandbox._printCalled = false;
+  await sandbox.triggerLabelPrint();
+  check("undersized barcode field blocks printing", sandbox._fakeElements["print-area"].innerHTML === "", `innerHTML=${sandbox._fakeElements["print-area"].innerHTML}`);
+  check("window.print() was NOT called for the blocked print", sandbox._printCalled === false);
 
   // ---------------------------------------------------------
   // Barcode print quality — guards against the exact regression

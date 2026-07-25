@@ -7,8 +7,6 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23FF8A3D'/%3E%3Cpath d='m7.5 4.27 9 5.15' stroke='%231C1017' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z' stroke='%231C1017' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='m3.3 7 8.7 5 8.7-5' stroke='%231C1017' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M12 22V12' stroke='%231C1017' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   :root{
@@ -385,6 +383,21 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let _rtChannels = [];
 
+const JSPDF_URL = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+const JSBARCODE_URL = "https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js";
+let _scriptLoadPromises = {};
+function loadScriptOnce(src) {
+  if (_scriptLoadPromises[src]) return _scriptLoadPromises[src];
+  _scriptLoadPromises[src] = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => { delete _scriptLoadPromises[src]; reject(new Error(`Failed to load ${src}`)); };
+    document.head.appendChild(s);
+  });
+  return _scriptLoadPromises[src];
+}
+
 let state = {
   // No sample accounts — every account comes from Supabase Auth.
   theme: (localStorage.getItem("depotos-theme") === "light") ? "light" : "dark",
@@ -508,6 +521,54 @@ function subscribeRealtime() {
   const profCh = sb.channel("profiles-changes")
     .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => { loadProfilesOnly().then(render); })
     .subscribe();
+  const invCh = sb.channel("inventory-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, (payload) => {
+      if (payload.eventType === "DELETE") {
+        state.inventory = state.inventory.filter(i => i.sku !== payload.old.sku);
+      } else {
+        const mapped = mapInvRow(payload.new);
+        const existing = state.inventory.find(i => i.sku === mapped.sku);
+        if (existing) Object.assign(existing, mapped);
+        else state.inventory.push(mapped);
+      }
+      render();
+    })
+    .subscribe();
+  const skuLocCh = sb.channel("sku-locations-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "sku_locations" }, (payload) => {
+      if (payload.eventType === "DELETE") {
+        state.skuLocations = state.skuLocations.filter(l => !(l.sku === payload.old.sku && l.locator === payload.old.locator));
+      } else {
+        const mapped = mapSkuLocRow(payload.new);
+        const idx = state.skuLocations.findIndex(l => l.sku === mapped.sku && l.locator === mapped.locator);
+        if (idx > -1) state.skuLocations[idx] = mapped;
+        else state.skuLocations.push(mapped);
+      }
+      render();
+    })
+    .subscribe();
+  const txCh = sb.channel("transactions-changes")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "transactions" }, (payload) => {
+      const mapped = mapTxRow(payload.new);
+      if (!state.transactions.some(t => t.id === mapped.id)) {
+        state.transactions.unshift(mapped);
+        render();
+      }
+    })
+    .subscribe();
+  const labelTplCh = sb.channel("label-templates-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "label_templates" }, (payload) => {
+      if (payload.eventType === "DELETE") {
+        state.labelTemplates = state.labelTemplates.filter(t => t.id !== payload.old.id);
+      } else {
+        const mapped = mapLabelTemplate(payload.new);
+        const idx = state.labelTemplates.findIndex(t => t.id === mapped.id);
+        if (idx > -1) state.labelTemplates[idx] = mapped;
+        else state.labelTemplates.push(mapped);
+      }
+      render();
+    })
+    .subscribe();
   const msgCh = sb.channel("messages-changes")
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
       const m = payload.new;
@@ -538,7 +599,7 @@ function subscribeRealtime() {
       }
     })
     .subscribe();
-  _rtChannels = [profCh, msgCh];
+  _rtChannels = [profCh, invCh, skuLocCh, txCh, labelTplCh, msgCh];
 }
 function unsubscribeRealtime() {
   _rtChannels.forEach(ch => sb.removeChannel(ch));
@@ -703,8 +764,12 @@ function render() {
   if (state.session) {
     if (state.view === "lookup") mountLookupVirtualList();
     if (state.view === "transactions" && state.txTab === "stock") mountTxVirtualList();
-    if (state.view === "labels" && state.labelEditor) renderLabelBarcodePreviews();
-    if (state.view === "labels" && !state.labelEditor && state.labelPrint) renderLabelPrintBarcodePreviews();
+    if (state.view === "labels" && (state.labelEditor || state.labelPrint) && typeof JsBarcode === "undefined") {
+      loadScriptOnce(JSBARCODE_URL).then(render).catch(() => {});
+    } else {
+      if (state.view === "labels" && state.labelEditor) renderLabelBarcodePreviews();
+      if (state.view === "labels" && !state.labelEditor && state.labelPrint) renderLabelPrintBarcodePreviews();
+    }
   }
 }
 function renderLoading() {
@@ -1257,8 +1322,8 @@ function exportCSV() {
   downloadBlob(toCSV(items), `inventory-export-${new Date().toISOString().slice(0,10)}.csv`, "text/csv");
   showToast(`Exported ${items.length} SKU(s) to CSV`, "ok");
 }
-function exportPDF() {
-  if (!window.jspdf) { showToast("PDF library still loading — try again in a moment", "danger"); return; }
+async function exportPDF() {
+  try { await loadScriptOnce(JSPDF_URL); } catch (e) { showToast("Couldn't load the PDF library — check your connection", "danger"); return; }
   const items = filteredInventory();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -2130,6 +2195,16 @@ const LABEL_BIND_OPTIONS = [
   { value: "retailBarcode", label: "Retail barcode (text)" },
 ];
 const BARCODE_MODULE_MM = 0.4; // safe bar width for thermal printing — above the 0.33mm ANSI minimum, allows for dot gain
+const EAN13_TOTAL_MODULES = 113; // 95 symbol modules + GS1-recommended quiet zones (11 left + 7 right)
+function minBarcodeFieldWidthMm(moduleMm = BARCODE_MODULE_MM) {
+  return EAN13_TOTAL_MODULES * moduleMm;
+}
+// NOTE: the barcode's PRINTED bar width is controlled by the field's real
+// mm width (below), not by JsBarcode's width/height options — the SVG gets
+// scaled via CSS (max-width/max-height, to preserve aspect ratio) to fit
+// its mm-sized container, which overrides whatever pixel size JsBarcode
+// draws it at. These options just need reasonable, valid values; they are
+// not where print-quality control actually lives.
 function barcodeRenderOptions(field, dpi) {
   const pxPerMm = (dpi || 300) / 25.4;
   return {
@@ -2399,7 +2474,14 @@ function renderLabelFieldProps(f) {
           </label>
         </div>
         <label class="checkbox-row"><input id="lbl-field-bold" data-id="${f.id}" type="checkbox" ${f.bold?'checked':''} style="width:auto;" /> Bold</label>
-      ` : `<p style="font-size:12px;color:var(--muted);margin:0;">Encodes the item's retail barcode (EAN-13). Generated automatically the first time a SKU is printed.</p>`}
+      ` : `
+        <p style="font-size:12px;color:var(--muted);margin:0;">Encodes the item's retail barcode (EAN-13). Generated automatically the first time a SKU is printed.</p>
+        ${f.w < minBarcodeFieldWidthMm() ? `
+          <div class="banner" style="background:var(--danger-dk);border-color:var(--danger-bd);color:var(--danger);margin:0;">
+            This field is too narrow to print a reliably scannable barcode (${f.w}mm — needs at least ${minBarcodeFieldWidthMm().toFixed(1)}mm). Bars will be squeezed thinner than scanners can read.
+            <button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" data-action="fix-barcode-width" data-id="${f.id}">Fix width (${minBarcodeFieldWidthMm().toFixed(1)}mm)</button>
+          </div>` : ""}
+      `}
       <div class="grid grid-2" style="gap:8px;">
         <label class="field"><span class="lbl">X (mm)</span><input id="lbl-field-x" data-id="${f.id}" type="number" step="0.5" value="${f.x}" /></label>
         <label class="field"><span class="lbl">Y (mm)</span><input id="lbl-field-y" data-id="${f.id}" type="number" step="0.5" value="${f.y}" /></label>
@@ -2426,7 +2508,7 @@ function addLabelField(type) {
   const t = state.labelEditor;
   const n = t.fields.length;
   const field = type === "barcode"
-    ? { id: newFieldId(), type: "barcode", bind: "retailBarcode", x: 5 + (n % 3) * 3, y: 5 + (n % 3) * 3, w: 48, h: 20 }
+    ? { id: newFieldId(), type: "barcode", bind: "retailBarcode", x: 5 + (n % 3) * 3, y: 5 + (n % 3) * 3, w: 52, h: 22 }
     : { id: newFieldId(), type: "text", bind: "description", static: "", x: 5 + (n % 3) * 3, y: 5 + (n % 3) * 3, w: 35, h: 8, fontSize: 10, bold: false, align: "left" };
   t.fields.push(field);
   state.labelSelectedFieldId = field.id;
@@ -2520,6 +2602,13 @@ async function triggerLabelPrint() {
   const t = state.labelTemplates.find(x => x.id === lp.templateId);
   if (!t) return showToast("Pick a template first", "danger");
   if (t.fields.length === 0) return showToast("This template has no fields", "danger");
+  const undersized = t.fields.find(f => f.type === "barcode" && f.w < minBarcodeFieldWidthMm());
+  if (undersized) {
+    return showToast(`Barcode field is too narrow to scan reliably (${undersized.w}mm — needs ≥${minBarcodeFieldWidthMm().toFixed(1)}mm). Fix it in the template before printing.`, "danger");
+  }
+  if (typeof JsBarcode === "undefined") {
+    try { await loadScriptOnce(JSBARCODE_URL); } catch (e) { showToast("Couldn't load the barcode library — check your connection and try again", "danger"); return; }
+  }
 
   const labelHtml = (idx) => `
     <div class="print-label-block" style="width:${t.widthMm}mm;height:${t.heightMm}mm;">
@@ -2814,7 +2903,7 @@ function attachHandlers() {
     }
     else if (action === "trigger-import") document.getElementById("import-file").click();
     else if (action === "export-csv") exportCSV();
-    else if (action === "export-pdf") exportPDF();
+    else if (action === "export-pdf") await exportPDF();
     else if (action === "open-add-item") openEditItem(null);
     else if (action === "edit-item") openEditItem(el.dataset.sku);
     else if (action === "delete-item") askConfirm("Delete this SKU?", `${el.dataset.sku} will be permanently removed from inventory.`, "delete-item", el.dataset.sku, "Delete");
@@ -2861,6 +2950,7 @@ function attachHandlers() {
     else if (action === "add-label-text-field") addLabelField("text");
     else if (action === "add-label-barcode-field") addLabelField("barcode");
     else if (action === "delete-label-field") deleteLabelField(el.dataset.id);
+    else if (action === "fix-barcode-width") { updateLabelField(el.dataset.id, { w: Math.ceil(minBarcodeFieldWidthMm() * 2) / 2 }); render(); }
     else if (action === "set-labels-tab") { state.labelsTab = el.dataset.tab; render(); }
     else if (action === "submit-label-scan") {
       const val = document.getElementById("label-scan-input").value.trim();
