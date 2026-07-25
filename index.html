@@ -453,7 +453,9 @@ function mapTxRow(t) {
 }
 function mapAdjRow(a) {
   return { id: a.id, sku: a.sku, description: a.description, reason: a.reason, delta: a.delta,
-    qtyBefore: a.qty_before, qtyAfter: a.qty_after, notes: a.notes, user: a.user_name, timestamp: a.timestamp };
+    qtyBefore: a.qty_before, qtyAfter: a.qty_after, notes: a.notes, user: a.user_name, timestamp: a.timestamp,
+    status: a.status || "approved", approvedByName: a.approved_by_name || null, approvedAt: a.approved_at || null,
+    rejectionReason: a.rejection_reason || null };
 }
 function syncSearchCache(item) {
   item._skuLc = (item.sku||"").toLowerCase();
@@ -580,7 +582,8 @@ function subscribeRealtime() {
           state.messages.push({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp, read: !incoming || viewingThisThread });
           purgeOldMessages();
           if (incoming && viewingThisThread) {
-            sb.from("messages").update({ read: true }).eq("id", m.id);
+            sb.from("messages").update({ read: true }).eq("id", m.id)
+              .then(({ error }) => { if (error) console.error("Failed to mark message read:", error.message); });
           } else if (incoming) {
             const sender = state.users.find(u => u.id === m.from_id);
             showToast(`New message from ${sender ? sender.name : "a teammate"}`, "ok");
@@ -622,6 +625,8 @@ function initials(name){ return name.split(" ").map(n=>n[0]).join(""); }
 function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function isAdmin(){ return !!state.session && state.session.role === "Admin"; }
 function canAdjust(){ return !!state.session && (state.session.role === "Admin" || state.session.role === "Stock Clerk"); }
+function canSubmitAdjustment(){ return !!state.session && state.session.role === "Stock Clerk"; }
+function canApproveAdjustments(){ return !!state.session && state.session.role === "Admin"; }
 
 /* ---------------------------------------------------------
    MESSAGE RETENTION (auto-purge after 3 months / ~90 days)
@@ -949,7 +954,13 @@ function markThreadRead(userId) {
   const toMark = state.messages.filter(m => m.from === userId && m.to === state.session.id && !m.read);
   if (toMark.length === 0) return;
   toMark.forEach(m => m.read = true);
-  sb.from("messages").update({ read: true }).eq("from_id", userId).eq("to_id", state.session.id).eq("read", false);
+  sb.from("messages").update({ read: true }).eq("from_id", userId).eq("to_id", state.session.id).eq("read", false)
+    .then(({ error }) => {
+      if (error) {
+        console.error("Failed to mark thread read:", error.message);
+        showToast("Couldn't sync read status — it may reappear as unread", "danger");
+      }
+    });
 }
 function renderTeamPanel() {
   const open = state.teamPanelOpen;
@@ -1807,22 +1818,34 @@ function renderStock() {
       </div>
     </div>
 
-    <div class="card">
-      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Recent entries</h2>
-      <div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;">
-        ${state.transactions.length === 0 ? `<p style="font-size:12px;color:var(--muted);">No stock movements logged yet.</p>` :
-        state.transactions.slice(0,8).map(t => `
-          <div style="display:flex;align-items:center;justify-content:space-between;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:8px 12px;font-size:13px;gap:8px;">
-            <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-              <span style="color:${t.type==='IN'?'var(--ok)':'var(--accent)'};flex-shrink:0;">${t.type==='IN'?ICONS.down:ICONS.up}</span>
-              <div style="min-width:0;">
-                <div class="mono" style="font-size:12px;">${esc(t.sku)} · ${t.qty} pcs${t.inputMethod==='scanner'?' <span style="color:var(--ok);">(scanned)</span>':''}</div>
-                <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.notes)} — ${esc(t.user)}</div>
-              </div>
-            </div>
-            <span style="font-size:11px;color:var(--dim);flex-shrink:0;">${t.timestamp}</span>
-          </div>`).join("")}
+    <div class="grid grid-2">
+      <div class="card">
+        <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;color:var(--ok);">${ICONS.down} Recent stock in</h2>
+        ${renderRecentEntriesList("IN")}
       </div>
+      <div class="card">
+        <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;color:var(--accent);">${ICONS.up} Recent stock out</h2>
+        ${renderRecentEntriesList("OUT")}
+      </div>
+    </div>
+  `;
+}
+function renderRecentEntriesList(type) {
+  const entries = state.transactions.filter(t => t.type === type).slice(0, 8);
+  if (entries.length === 0) return `<p style="font-size:12px;color:var(--muted);">No stock ${type==='IN'?'in':'out'} logged yet.</p>`;
+  return `
+    <div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;">
+      ${entries.map(t => `
+        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:8px 12px;font-size:13px;gap:8px;">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+            <span style="color:${t.type==='IN'?'var(--ok)':'var(--accent)'};flex-shrink:0;">${t.type==='IN'?ICONS.down:ICONS.up}</span>
+            <div style="min-width:0;">
+              <div class="mono" style="font-size:12px;">${esc(t.sku)} · ${t.qty} pcs${t.inputMethod==='scanner'?' <span style="color:var(--ok);">(scanned)</span>':''}</div>
+              <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.notes)} — ${esc(t.user)}</div>
+            </div>
+          </div>
+          <span style="font-size:11px;color:var(--dim);flex-shrink:0;">${t.timestamp}</span>
+        </div>`).join("")}
     </div>
   `;
 }
@@ -1995,15 +2018,22 @@ async function submitStock() {
 function renderAdjustments() {
   const f = state._adjForm || { sku:"", reason: ADJUSTMENT_REASONS[0], delta:"", notes:"" };
   const admin = isAdmin();
+  const canSubmit = canSubmitAdjustment();
+  const canApprove = canApproveAdjustments();
   const visible = admin ? state.adjustments : state.adjustments.filter(a => a.user === state.session.name);
+  const pending = state.adjustments.filter(a => a.status === "pending");
   const skuOptions = state.inventory.map(i => `<option value="${i.sku}">`).join("");
+  const statusTag = (status) => status === "approved" ? `<span class="tag tag-ok">Approved</span>`
+    : status === "rejected" ? `<span class="tag tag-danger">Rejected</span>`
+    : `<span class="tag tag-violet">Pending</span>`;
 
   return `
     <div style="margin-bottom:20px;">
       <h1 class="page-title">Stock adjustments</h1>
-      <p class="page-sub">Log write-offs, shrinkage, or physical-count corrections outside normal Stock In/Out. Every change records who, when, why, and how much.</p>
+      <p class="page-sub">${canSubmit ? "Submit write-offs, shrinkage, or physical-count corrections for Admin approval. Every change records who, when, why, and how much." : canApprove ? "Review and approve or reject adjustment requests submitted by Stock Clerks. Inventory only changes once you approve." : "Adjustment history."}</p>
     </div>
 
+    ${canSubmit ? `
     <div class="card" style="margin-bottom:16px;">
       <div class="grid grid-3">
         <label class="field"><span class="lbl">SKU</span><input id="adj-sku" list="sku-options-adj" value="${esc(f.sku)}" placeholder="10112345" /></label>
@@ -2017,23 +2047,46 @@ function renderAdjustments() {
       </label>
       <datalist id="sku-options-adj">${skuOptions}</datalist>
       <div style="display:flex;justify-content:flex-end;margin-top:14px;">
-        <button class="btn btn-primary" data-action="submit-adjustment">${ICONS.adjust} Record adjustment</button>
+        <button class="btn btn-primary" data-action="submit-adjustment">${ICONS.adjust} Submit for approval</button>
       </div>
-    </div>
+    </div>` : ""}
+
+    ${canApprove ? `
+    <div class="card" style="margin-bottom:16px;">
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Pending approval ${pending.length ? `<span class="tag tag-violet" style="margin-left:6px;">${pending.length}</span>` : ""}</h2>
+      ${pending.length === 0 ? `<p style="font-size:12px;color:var(--muted);margin:0;">No adjustment requests waiting on you.</p>` :
+        `<div style="display:flex;flex-direction:column;gap:10px;">
+          ${pending.map(a => `
+            <div style="background:var(--field);border:1px solid var(--line);border-radius:4px;padding:12px 14px;">
+              <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                <div>
+                  <span class="mono" style="font-weight:600;">${esc(a.sku)}</span> — ${esc(a.description)}
+                  <div style="font-size:12px;color:var(--muted);margin-top:2px;">${esc(a.reason)} · <span style="color:${a.delta<0?'var(--danger)':'var(--ok)'};">${a.delta>0?'+':''}${a.delta}</span> (currently ${a.qtyBefore}) · requested by ${esc(a.user)} · ${a.timestamp}</div>
+                  <div style="font-size:12px;color:var(--nav-text);margin-top:4px;">${esc(a.notes)}</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:flex-start;flex-shrink:0;">
+                  <button class="btn btn-primary btn-sm" data-action="approve-adjustment" data-id="${a.id}">Approve</button>
+                  <button class="btn btn-danger btn-sm" data-action="reject-adjustment" data-id="${a.id}">Reject</button>
+                </div>
+              </div>
+            </div>`).join("")}
+        </div>`}
+    </div>` : ""}
 
     <div class="card">
-      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">${admin ? "All adjustments" : "Your recent adjustments"}</h2>
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">${admin ? "All adjustments" : "Your adjustment requests"}</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>SKU</th><th>Reason</th><th>Qty Δ</th><th>Before → After</th><th>By</th><th>Notes</th><th>Timestamp</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Reason</th><th>Qty Δ</th><th>Before → After</th><th>Status</th><th>Requested by</th><th>Notes</th><th>Timestamp</th></tr></thead>
           <tbody>
-            ${visible.length === 0 ? `<tr><td colspan="7" style="text-align:center;color:var(--dim);padding:24px;">No adjustments logged yet.</td></tr>` :
+            ${visible.length === 0 ? `<tr><td colspan="8" style="text-align:center;color:var(--dim);padding:24px;">No adjustments logged yet.</td></tr>` :
               visible.slice(0,100).map(a => `
               <tr>
                 <td class="mono" style="font-size:12px;">${esc(a.sku)}</td>
                 <td><span class="tag tag-violet">${esc(a.reason)}</span></td>
                 <td class="mono" style="color:${a.delta<0?'var(--danger)':'var(--ok)'};">${a.delta>0?'+':''}${a.delta}</td>
-                <td class="mono" style="font-size:12px;">${a.qtyBefore} → ${a.qtyAfter}</td>
+                <td class="mono" style="font-size:12px;">${a.qtyBefore} → ${a.qtyAfter ?? '—'}</td>
+                <td>${statusTag(a.status)}${a.status==='rejected' && a.rejectionReason ? `<div style="font-size:11px;color:var(--dim);margin-top:3px;">${esc(a.rejectionReason)}</div>` : ""}</td>
                 <td style="color:var(--nav-text);">${esc(a.user)}</td>
                 <td style="color:var(--muted);font-size:12px;">${esc(a.notes)}</td>
                 <td style="color:var(--dim);font-size:11px;">${a.timestamp}</td>
@@ -2045,6 +2098,7 @@ function renderAdjustments() {
   `;
 }
 async function submitAdjustment() {
+  if (!canSubmitAdjustment()) return showToast("Only Stock Clerks can submit adjustment requests", "danger");
   const sku = document.getElementById("adj-sku").value.trim();
   const reason = document.getElementById("adj-reason").value;
   const delta = parseInt(document.getElementById("adj-delta").value, 10);
@@ -2055,28 +2109,63 @@ async function submitAdjustment() {
   if (!delta) return showToast("Enter a non-zero quantity change", "danger");
   if (!notes) return showToast("A note is required for the audit trail", "danger");
 
-  const qtyBefore = item.qty;
-  const qtyAfter = Math.max(0, qtyBefore + delta);
-
-  const { error: invErr } = await sb.from("inventory").update({ qty: qtyAfter }).eq("sku", sku);
-  if (invErr) { showToast(invErr.message, "danger"); return; }
-
+  // Pending only — inventory is NOT touched until an Admin approves this.
   const adj = {
     id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
-    sku, description: item.description, reason, delta, qtyBefore, qtyAfter,
-    notes, user: state.session.name, timestamp: fmt(0),
+    sku, description: item.description, reason, delta, qtyBefore: item.qty, qtyAfter: null,
+    notes, user: state.session.name, timestamp: fmt(0), status: "pending", approvedByName: null, approvedAt: null, rejectionReason: null,
   };
-  const { error: adjErr } = await sb.from("adjustments").insert({
+  const { error } = await sb.from("adjustments").insert({
     id: adj.id, sku: adj.sku, description: adj.description, reason: adj.reason, delta: adj.delta,
-    qty_before: adj.qtyBefore, qty_after: adj.qtyAfter, notes: adj.notes,
-    user_name: adj.user, user_id: state.session.id, timestamp: adj.timestamp,
+    qty_before: adj.qtyBefore, qty_after: null, notes: adj.notes,
+    user_name: adj.user, user_id: state.session.id, timestamp: adj.timestamp, status: "pending",
   });
+  if (error) { showToast(error.message, "danger"); return; }
+
+  state.adjustments.unshift(adj);
+  state._adjForm = { sku:"", reason: ADJUSTMENT_REASONS[0], delta:"", notes:"" };
+  showToast("Adjustment submitted — waiting on Admin approval", "ok");
+  render();
+}
+
+async function approveAdjustment(id) {
+  if (!canApproveAdjustments()) return showToast("Only Admins can approve adjustments", "danger");
+  const adj = state.adjustments.find(a => a.id === id);
+  if (!adj || adj.status !== "pending") return;
+  const item = state.inventory.find(i => i.sku === adj.sku);
+  if (!item) { showToast(`SKU ${adj.sku} no longer exists in inventory`, "danger"); return; }
+
+  // Apply against the LIVE quantity at approval time, not whatever it was
+  // when the request was submitted — other stock movements may have
+  // happened in between.
+  const qtyAfter = Math.max(0, item.qty + adj.delta);
+  const { error: invErr } = await sb.from("inventory").update({ qty: qtyAfter }).eq("sku", adj.sku);
+  if (invErr) { showToast(invErr.message, "danger"); return; }
+
+  const approvedAt = fmt(0);
+  const { error: adjErr } = await sb.from("adjustments").update({
+    status: "approved", qty_after: qtyAfter, approved_by: state.session.id, approved_by_name: state.session.name, approved_at: approvedAt,
+  }).eq("id", id);
   if (adjErr) { showToast(adjErr.message, "danger"); return; }
 
   item.qty = qtyAfter;
-  state.adjustments.unshift(adj);
-  state._adjForm = { sku:"", reason: ADJUSTMENT_REASONS[0], delta:"", notes:"" };
-  showToast(`Adjustment recorded — ${item.sku} now at ${qtyAfter}`, "ok");
+  Object.assign(adj, { status: "approved", qtyAfter, approvedByName: state.session.name, approvedAt });
+  showToast(`Approved — ${adj.sku} now at ${qtyAfter}`, "ok");
+  render();
+}
+
+async function rejectAdjustment(id, reason) {
+  if (!canApproveAdjustments()) return showToast("Only Admins can reject adjustments", "danger");
+  const adj = state.adjustments.find(a => a.id === id);
+  if (!adj || adj.status !== "pending") return;
+  const rejectedAt = fmt(0);
+  const { error } = await sb.from("adjustments").update({
+    status: "rejected", approved_by: state.session.id, approved_by_name: state.session.name, approved_at: rejectedAt, rejection_reason: reason || null,
+  }).eq("id", id);
+  if (error) { showToast(error.message, "danger"); return; }
+
+  Object.assign(adj, { status: "rejected", approvedByName: state.session.name, approvedAt: rejectedAt, rejectionReason: reason || null });
+  showToast("Adjustment rejected", "ok");
   render();
 }
 
@@ -2768,6 +2857,16 @@ function renderProfile() {
           </div>
         </div>
       </div>
+      <div class="card" style="margin-top:16px;">
+        <div style="font-weight:600;font-size:14px;margin-bottom:14px;">Change password</div>
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <label class="field"><span class="lbl">New password</span><input id="pf-new-password" type="password" placeholder="At least 8 characters" /></label>
+          <label class="field"><span class="lbl">Confirm new password</span><input id="pf-confirm-password" type="password" /></label>
+          <div style="display:flex;justify-content:flex-end;padding-top:6px;">
+            <button class="btn btn-primary" data-action="change-password">Update password</button>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -2829,6 +2928,12 @@ function attachHandlers() {
       if (payload) state.barcodeManual = "";
     }
     else if (action === "submit-adjustment") await submitAdjustment();
+    else if (action === "approve-adjustment") await approveAdjustment(el.dataset.id);
+    else if (action === "reject-adjustment") {
+      const reason = prompt("Reason for rejecting this adjustment (optional):");
+      if (reason === null) return; // cancelled
+      await rejectAdjustment(el.dataset.id, reason.trim());
+    }
     else if (action === "add-locator") {
       const f = state._locForm || {};
       if (!f.code) { showToast("Locator code is required", "danger"); return; }
@@ -2877,6 +2982,17 @@ function attachHandlers() {
       if (u) Object.assign(u, { name, username });
       showToast("Profile updated", "ok");
       render();
+    }
+    else if (action === "change-password") {
+      const pw = document.getElementById("pf-new-password").value;
+      const confirm = document.getElementById("pf-confirm-password").value;
+      if (!pw || pw.length < 8) { showToast("Password must be at least 8 characters", "danger"); return; }
+      if (pw !== confirm) { showToast("Passwords don't match", "danger"); return; }
+      const { error } = await sb.auth.updateUser({ password: pw });
+      if (error) { showToast(error.message, "danger"); return; }
+      document.getElementById("pf-new-password").value = "";
+      document.getElementById("pf-confirm-password").value = "";
+      showToast("Password updated", "ok");
     }
     else if (action === "set-tx-tab") { state.txTab = el.dataset.tab; render(); }
     else if (action === "toggle-team-panel") {

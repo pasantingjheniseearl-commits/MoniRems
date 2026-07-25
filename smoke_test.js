@@ -170,7 +170,8 @@ try {
 // (and calling functions retrieved the same way) affects real app state.
 for (const name of ["state", "submitStock", "importCSVFile", "parseCSV", "fmt", "getSkuLocations",
   "generateRetailBarcode", "isValidEan13", "sampleValueForBind", "addLabelField", "updateLabelField", "deleteLabelField", "saveLabelTemplate", "newFieldId",
-  "resolveItemFromScan", "handleLabelScan", "resolvedFieldValue", "printFieldValue", "triggerLabelPrint", "barcodeRenderOptions", "minBarcodeFieldWidthMm"]) {
+  "resolveItemFromScan", "handleLabelScan", "resolvedFieldValue", "printFieldValue", "triggerLabelPrint", "barcodeRenderOptions", "minBarcodeFieldWidthMm",
+  "submitAdjustment", "approveAdjustment", "rejectAdjustment", "canSubmitAdjustment", "canApproveAdjustments"]) {
   sandbox[name] = vm.runInContext(name, sandbox);
 }
 
@@ -408,6 +409,61 @@ async function main() {
   check("higher DPI produces a proportionally larger module width", opts300.width > opts203.width);
   const optsNoDpi = sandbox.barcodeRenderOptions({ h: 20 }, undefined);
   check("missing DPI falls back to a safe default (300), not the old arbitrary 2px", optsNoDpi.width === 5, `width=${optsNoDpi.width}`);
+
+  // ---------------------------------------------------------
+  // Adjustments approval workflow
+  // ---------------------------------------------------------
+  section("Adjustments: submit (Stock Clerk) does NOT touch inventory");
+  const adjItem = sandbox.state.inventory.find(i => i.sku === "10000002");
+  const adjQtyBefore = adjItem.qty;
+  sandbox.state.session = { id: "u2", name: "Test Clerk", role: "Stock Clerk" };
+  sandbox._fakeElements["adj-sku"] = { value: adjItem.sku };
+  sandbox._fakeElements["adj-reason"] = { value: "Damaged" };
+  sandbox._fakeElements["adj-delta"] = { value: "-5" };
+  sandbox._fakeElements["adj-notes"] = { value: "Found damaged during shelf check" };
+  await sandbox.submitAdjustment();
+  check("inventory qty unchanged immediately after submission", adjItem.qty === adjQtyBefore, `qty=${adjItem.qty}`);
+  const submitted = sandbox.state.adjustments[0];
+  check("adjustment created with pending status", submitted && submitted.status === "pending", JSON.stringify(submitted));
+  check("qtyAfter is not yet set for a pending request", submitted && submitted.qtyAfter === null);
+
+  section("Adjustments: role gating");
+  sandbox.state.session = { id: "u3", name: "Test Admin2", role: "Admin" };
+  const beforeCount = store.adjustments.length;
+  await sandbox.submitAdjustment(); // Admin should NOT be able to submit
+  check("Admin cannot submit an adjustment request", store.adjustments.length === beforeCount, `count went from ${beforeCount} to ${store.adjustments.length}`);
+  sandbox.state.session = { id: "u2", name: "Test Clerk", role: "Stock Clerk" };
+  const pendingId = submitted.id;
+  await sandbox.approveAdjustment(pendingId); // Stock Clerk should NOT be able to approve
+  const stillPending = sandbox.state.adjustments.find(a => a.id === pendingId);
+  check("Stock Clerk cannot approve their own request", stillPending.status === "pending", stillPending.status);
+
+  section("Adjustments: Admin approval actually changes inventory");
+  sandbox.state.session = { id: "u3", name: "Test Admin2", role: "Admin" };
+  // Simulate other stock movement happening between submission and approval
+  adjItem.qty = adjQtyBefore + 10;
+  await sandbox.approveAdjustment(pendingId);
+  const approved = sandbox.state.adjustments.find(a => a.id === pendingId);
+  check("adjustment marked approved", approved.status === "approved", approved.status);
+  check("approval applies delta against the LIVE qty, not the stale submission-time qty", adjItem.qty === (adjQtyBefore + 10 - 5), `qty=${adjItem.qty}, expected=${adjQtyBefore+10-5}`);
+  check("qtyAfter recorded correctly", approved.qtyAfter === adjItem.qty);
+  check("approver name recorded", approved.approvedByName === "Test Admin2");
+
+  section("Adjustments: rejection does not touch inventory");
+  sandbox._fakeElements["adj-sku"] = { value: adjItem.sku };
+  sandbox._fakeElements["adj-reason"] = { value: "Other" };
+  sandbox._fakeElements["adj-delta"] = { value: "20" };
+  sandbox._fakeElements["adj-notes"] = { value: "Testing rejection" };
+  sandbox.state.session = { id: "u2", name: "Test Clerk", role: "Stock Clerk" };
+  await sandbox.submitAdjustment();
+  const secondPending = sandbox.state.adjustments[0];
+  const qtyBeforeReject = adjItem.qty;
+  sandbox.state.session = { id: "u3", name: "Test Admin2", role: "Admin" };
+  await sandbox.rejectAdjustment(secondPending.id, "Not enough evidence");
+  const rejected = sandbox.state.adjustments.find(a => a.id === secondPending.id);
+  check("adjustment marked rejected", rejected.status === "rejected", rejected.status);
+  check("inventory untouched by rejection", adjItem.qty === qtyBeforeReject, `qty=${adjItem.qty}`);
+  check("rejection reason recorded", rejected.rejectionReason === "Not enough evidence");
 
   section("Philippine timezone");
   const stamp = sandbox.fmt(0);
