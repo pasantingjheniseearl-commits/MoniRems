@@ -171,7 +171,7 @@ try {
 for (const name of ["state", "submitStock", "importCSVFile", "parseCSV", "fmt", "getSkuLocations",
   "generateRetailBarcode", "isValidEan13", "sampleValueForBind", "addLabelField", "updateLabelField", "deleteLabelField", "saveLabelTemplate", "newFieldId",
   "resolveItemFromScan", "handleLabelScan", "resolvedFieldValue", "printFieldValue", "triggerLabelPrint", "barcodeRenderOptions", "minBarcodeFieldWidthMm",
-  "submitAdjustment", "approveAdjustment", "rejectAdjustment", "canSubmitAdjustment", "canApproveAdjustments"]) {
+  "submitAdjustment", "approveAdjustment", "rejectAdjustment", "canSubmitAdjustment", "canApproveAdjustments", "applyBarcodePayload", "saveEditItem", "filteredInventory"]) {
   sandbox[name] = vm.runInContext(name, sandbox);
 }
 
@@ -464,6 +464,77 @@ async function main() {
   check("adjustment marked rejected", rejected.status === "rejected", rejected.status);
   check("inventory untouched by rejection", adjItem.qty === qtyBeforeReject, `qty=${adjItem.qty}`);
   check("rejection reason recorded", rejected.rejectionReason === "Not enough evidence");
+
+  // ---------------------------------------------------------
+  // Stock In/Out: price field updates the system-wide unit value
+  // ---------------------------------------------------------
+  section("Stock entry price updates the master inventory record");
+  sandbox.state.session = { id: "u1", name: "Test Admin", username: "testadmin", role: "Admin", status: "online", approved: true };
+  const priceItem = sandbox.state.inventory.find(i => i.sku === "10000001");
+  const oldPrice = priceItem.unitValue;
+  const newPrice = oldPrice + 5.5;
+  sandbox.state.stockType = "IN";
+  sandbox.state.rows = [{ sku: "10000001", description: priceItem.description, qty: "3", notes: "", locator: "001", price: String(newPrice) }];
+  await sandbox.submitStock();
+  check("unit price updated system-wide from the stock form", priceItem.unitValue === newPrice, `unitValue=${priceItem.unitValue}, expected=${newPrice}`);
+  const lastTx = sandbox.state.transactions[0];
+  check("transaction value uses the NEW price, not the old one", lastTx.value === 3 * newPrice, `value=${lastTx.value}, expected=${3*newPrice}`);
+
+  section("Stock entry with blank price leaves the existing price untouched");
+  const priceBefore2 = priceItem.unitValue;
+  sandbox.state.rows = [{ sku: "10000001", description: priceItem.description, qty: "2", notes: "", locator: "001", price: "" }];
+  await sandbox.submitStock();
+  check("price unchanged when the price field is left blank", priceItem.unitValue === priceBefore2, `unitValue=${priceItem.unitValue}`);
+
+  // ---------------------------------------------------------
+  // Scanning never carries over a stale quantity between items
+  // ---------------------------------------------------------
+  section("Scanning a new item always clears quantity (no stale carryover)");
+  sandbox.state.rows = [{ sku: "10000002", description: "old desc", qty: "999", notes: "", locator: "001", price: "" }];
+  const scanItem = sandbox.state.inventory.find(i => i.sku === "10000002");
+  sandbox.applyBarcodePayload({ sku: scanItem.sku, prefix: null, suffix: null, inputMethod: "scanner" });
+  check("qty cleared after a scan replaces the row, even though a value was already sitting there", sandbox.state.rows[0].qty === "", `qty="${sandbox.state.rows[0].qty}"`);
+  check("price pre-filled from the item's current unit value", sandbox.state.rows[0].price === String(scanItem.unitValue), sandbox.state.rows[0].price);
+
+  // ---------------------------------------------------------
+  // Regression: auto-logged adjustments from a direct Admin edit
+  // must be pre-approved, not defaulted to pending (which would
+  // put an already-applied change into the approval queue, and
+  // risk double-applying it if "approved" again).
+  // ---------------------------------------------------------
+  section("Edit Item qty correction auto-logs as already-approved");
+  sandbox.state.session = { id: "u1", name: "Test Admin", username: "testadmin", role: "Admin", status: "online", approved: true };
+  const editItem = sandbox.state.inventory.find(i => i.sku === "10000001");
+  sandbox.state.editItem = { ...editItem, _isNew: false };
+  const editQtyBefore = editItem.qty;
+  sandbox._fakeElements["ei-sku"] = { value: editItem.sku };
+  sandbox._fakeElements["ei-retail-barcode"] = { value: editItem.retailBarcode || "" };
+  sandbox._fakeElements["ei-desc"] = { value: editItem.description };
+  sandbox._fakeElements["ei-cat"] = { value: editItem.category || "" };
+  sandbox._fakeElements["ei-loc"] = { value: editItem.locator || "" };
+  sandbox._fakeElements["ei-qty"] = { value: String(editQtyBefore + 7) };
+  sandbox._fakeElements["ei-value"] = { value: String(editItem.unitValue) };
+  sandbox._fakeElements["ei-reorder"] = { value: String(editItem.reorder) };
+  await sandbox.saveEditItem();
+  const autoLogged = sandbox.state.adjustments.find(a => a.sku === editItem.sku && a.notes.includes("inventory item edit"));
+  check("auto-logged adjustment exists", !!autoLogged);
+  check("auto-logged adjustment is already approved, not pending", autoLogged && autoLogged.status === "approved", autoLogged && autoLogged.status);
+  check("does not appear as a pending approval item", sandbox.state.adjustments.filter(a => a.status === "pending").every(a => a.id !== (autoLogged && autoLogged.id)));
+
+  // ---------------------------------------------------------
+  // Dashboard: low-stock filter used by the new clickable KPI card
+  // ---------------------------------------------------------
+  section("Lookup low-stock-only filter");
+  const lowStockTestItem = sandbox.state.inventory.find(i => i.sku === "10000002");
+  lowStockTestItem.reorder = lowStockTestItem.qty + 100; // force it below reorder level
+  sandbox.state.lookupQ = ""; sandbox.state.lookupLoc = "all"; sandbox.state.lookupCat = "all";
+  sandbox.state.lookupLowStockOnly = false;
+  const allResults = sandbox.filteredInventory().length;
+  sandbox.state.lookupLowStockOnly = true;
+  const lowStockResults = sandbox.filteredInventory();
+  check("low-stock-only filter narrows results", lowStockResults.length < allResults, `all=${allResults}, filtered=${lowStockResults.length}`);
+  check("every result is actually at or below its reorder level", lowStockResults.every(i => i.qty <= i.reorder));
+  check("the forced-low-stock item is included", lowStockResults.some(i => i.sku === "10000002"));
 
   section("Philippine timezone");
   const stamp = sandbox.fmt(0);

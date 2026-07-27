@@ -35,7 +35,7 @@
   }
   *{box-sizing:border-box;}
   html,body{height:100%;}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;transition:background .15s,color .15s;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;transition:background .15s,color .15s;line-height:1.5;}
   .mono{font-family:'IBM Plex Mono',monospace;}
   ::-webkit-scrollbar{width:8px;height:8px;}
   ::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:4px;}
@@ -87,7 +87,7 @@
 
   .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;min-width:0;}
   .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
-  table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:560px;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:560px;font-variant-numeric:tabular-nums;}
   thead tr{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
     background:var(--panel-2);border-bottom:1px solid var(--line);}
   th{padding:9px 14px;white-space:nowrap;}
@@ -137,6 +137,25 @@
   .who-role{font-size:11px;color:var(--muted);}
 
   .main{flex:1;min-width:0;margin-left:var(--sidebar-w);display:flex;flex-direction:column;min-height:100vh;}
+  .hamburger-btn{display:none;background:none;border:none;color:var(--text);padding:6px;cursor:pointer;flex-shrink:0;}
+  .mobile-nav-backdrop{display:none;position:fixed;inset:0;background:var(--overlay);z-index:99;}
+  @media(max-width:768px){
+    .sidebar{
+      transform:translateX(-100%);
+      width:var(--sidebar-w-open) !important;
+      transition:transform .22s ease;
+      box-shadow:none;
+    }
+    .sidebar.mobile-open{transform:translateX(0);box-shadow:6px 0 28px var(--sidebar-shadow);}
+    .sidebar .hide-collapsed{opacity:1;max-width:180px;}
+    .main{margin-left:0;}
+    .mobile-nav-backdrop.show{display:block;}
+    .hamburger-btn{display:inline-flex;}
+    .content{padding:16px;}
+    .topbar{padding:10px 16px;}
+    .icon-btn{padding:9px;}
+    .btn-sm{padding:8px 12px;}
+  }
   .topbar{min-height:56px;border-bottom:1px solid var(--line);display:flex;align-items:center;
     justify-content:space-between;padding:10px 24px;flex-shrink:0;gap:12px;flex-wrap:wrap;}
   .content{flex:1;overflow-y:auto;padding:24px;}
@@ -157,7 +176,7 @@
   @media(max-width:520px){.grid-4{grid-template-columns:1fr;}}
 
   .stat-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);}
-  .stat-value{font-size:24px;font-weight:600;font-family:'IBM Plex Mono',monospace;margin-top:8px;word-break:break-word;}
+  .stat-value{font-size:24px;font-weight:600;font-family:'IBM Plex Mono',monospace;margin-top:8px;word-break:break-word;font-variant-numeric:tabular-nums;}
   .stat-sub{font-size:11px;color:var(--muted);margin-top:6px;}
 
   .toast{margin-bottom:16px;padding:10px 16px;border-radius:3px;font-size:13.5px;border:1px solid;}
@@ -187,10 +206,10 @@
   .stockin-tab.active-in{background:var(--ok-dk);color:var(--ok);}
   .stockin-tab.active-out{background:var(--accent-dk);color:var(--accent);}
 
-  .row-grid{display:grid;grid-template-columns:2fr 3fr 1fr 1.4fr 2fr 28px;gap:10px;align-items:center;margin-bottom:8px;}
-  .row-grid.single{grid-template-columns:2fr 3fr 1fr 1.4fr 3fr;}
-  .row-head{display:grid;grid-template-columns:2fr 3fr 1fr 1.4fr 2fr 28px;gap:10px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px;padding:0 2px;}
-  .row-head.single{grid-template-columns:2fr 3fr 1fr 1.4fr 3fr;}
+  .row-grid{display:grid;grid-template-columns:2fr 3fr 1fr 1fr 1.4fr 2fr 28px;gap:10px;align-items:center;margin-bottom:8px;}
+  .row-grid.single{grid-template-columns:2fr 3fr 1fr 1fr 1.4fr 3fr;}
+  .row-head{display:grid;grid-template-columns:2fr 3fr 1fr 1fr 1.4fr 2fr 28px;gap:10px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px;padding:0 2px;}
+  .row-head.single{grid-template-columns:2fr 3fr 1fr 1fr 1.4fr 3fr;}
   @media(max-width:700px){
     .row-grid,.row-grid.single,.row-head,.row-head.single{grid-template-columns:1fr;}
     .row-head{display:none;}
@@ -256,6 +275,9 @@
   .print-label-block{page-break-after:always;background:#fff;position:relative;overflow:hidden;print-color-adjust:exact;-webkit-print-color-adjust:exact;}
   .print-label-block *{print-color-adjust:exact;-webkit-print-color-adjust:exact;}
   .print-label-block:last-child{page-break-after:auto;}
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{transition-duration:.001ms !important;animation-duration:.001ms !important;}
+  }
   @media print{
     body > *:not(#print-area){display:none !important;}
     #print-area{visibility:visible;position:static;left:auto;}
@@ -291,6 +313,7 @@
    ICONS (inline SVG, stroke-based)
 --------------------------------------------------------- */
 const ICONS = {
+  hamburger: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`,
   sun: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`,
   moon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>`,
   grid: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
@@ -412,6 +435,7 @@ let state = {
   labelsTab: "print",
   labelScanBuffer: "",
   labelPrint: null, // { templateId, item, overrides: {fieldId: value}, copies } once a SKU is resolved
+  mobileNavOpen: false,
   transactions: [],
   loginLogs: [],
   messages: [],
@@ -425,9 +449,10 @@ let state = {
   lookupQ: "",
   lookupLoc: "all",
   lookupCat: "all",
+  lookupLowStockOnly: false,
   stockType: "IN",
   bulk: false,
-  rows: [{ sku: "", description: "", qty: "", notes: "", locator: "" }],
+  rows: [{ sku: "", description: "", qty: "", notes: "", locator: "", price: "" }],
   barcodeManual: "",
   teamPanelOpen: false,
   chatWith: null,
@@ -879,7 +904,8 @@ function renderShell() {
 
   return `
   <div class="shell">
-    <aside class="sidebar" tabindex="0">
+    <div class="mobile-nav-backdrop ${state.mobileNavOpen?'show':''}" data-action="close-mobile-nav"></div>
+    <aside class="sidebar ${state.mobileNavOpen?'mobile-open':''}" tabindex="0">
       <div class="brand">
         <div class="brand-mark">${ICONS.package}</div>
         <div class="hide-collapsed"><div class="brand-name">DEPOT/OS</div><div class="brand-sub">Warehouse Monitor</div></div>
@@ -900,7 +926,10 @@ function renderShell() {
     </aside>
     <main class="main">
       <header class="topbar">
-        <div style="font-size:13.5px;color:var(--muted);">${dateStr}</div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <button class="hamburger-btn" data-action="toggle-mobile-nav" title="Menu">${ICONS.hamburger}</button>
+          <div style="font-size:13.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dateStr}</div>
+        </div>
         <div style="display:flex;align-items:center;gap:10px;">
           <button class="team-btn" data-action="toggle-team-panel" title="See who's online and message the team" style="position:relative;">
             <span class="stack-avatars">
@@ -1050,16 +1079,25 @@ function renderDashboard() {
   const mtdOutValue = mtdOut.reduce((s,t)=>s+t.value,0);
   const lowStock = state.inventory.filter(i => i.qty <= i.reorder);
   const totalValue = state.inventory.reduce((s,i)=>s+i.qty*i.unitValue,0);
+  const valueAtMonthStart = totalValue - mtdInValue + mtdOutValue;
+  const valueTrendPct = valueAtMonthStart > 0 ? ((totalValue - valueAtMonthStart) / valueAtMonthStart) * 100 : 0;
+  const pendingApprovals = state.adjustments.filter(a => a.status === "pending");
+  const thirtyDaysAgo = manilaDateKey(new Date(Date.now() - 30*86400000));
+  const skusWithRecentMovement = new Set(state.transactions.filter(t => dayKeyOf(t.timestamp) >= thirtyDaysAgo).map(t => t.sku));
+  const deadStock = state.inventory.filter(i => i.qty > 0 && !skusWithRecentMovement.has(i.sku));
+  const deadStockValue = deadStock.reduce((s,i)=>s+i.qty*i.unitValue,0);
 
   const days = [...Array(7)].map((_, idx) => {
     const d = new Date(Date.now() - (6-idx) * 86400000);
     const label = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", weekday: "short" }).format(d);
     const key = manilaDateKey(d);
-    const inCount = state.transactions.filter(t => t.type==="IN" && dayKeyOf(t.timestamp)===key).length;
-    const outCount = state.transactions.filter(t => t.type==="OUT" && dayKeyOf(t.timestamp)===key).length;
-    return { label, inCount, outCount };
+    const inTx = state.transactions.filter(t => t.type==="IN" && dayKeyOf(t.timestamp)===key);
+    const outTx = state.transactions.filter(t => t.type==="OUT" && dayKeyOf(t.timestamp)===key);
+    const inValue = inTx.reduce((s,t)=>s+t.value,0);
+    const outValue = outTx.reduce((s,t)=>s+t.value,0);
+    return { label, inCount: inTx.length, outCount: outTx.length, inValue, outValue };
   });
-  const maxCount = Math.max(1, ...days.map(d => Math.max(d.inCount, d.outCount)));
+  const maxValue = Math.max(1, ...days.map(d => Math.max(d.inValue, d.outValue)));
 
   const perLocator = state.locators.map(loc => {
     const items = state.inventory.filter(i => i.locator === loc.code);
@@ -1079,14 +1117,21 @@ function renderDashboard() {
     <div class="grid grid-4" style="margin-bottom:16px;">
       ${statCard(ICONS.down, "Stock In (MTD)", mtdIn.length, `₱${mtdInValue.toLocaleString()} received`, "ok")}
       ${statCard(ICONS.up, "Stock Out (MTD)", mtdOut.length, `₱${mtdOutValue.toLocaleString()} released`, "accent")}
-      ${statCard(ICONS.alert, "Low-stock SKUs", lowStock.length, "At or below reorder level", "danger")}
-      ${statCard(ICONS.layers, "Total inventory value", `₱${totalValue.toLocaleString()}`, `${state.inventory.length} SKUs · ${state.categories.length} categories`, "")}
+      ${statCard(ICONS.alert, "Low-stock SKUs", lowStock.length, "At or below reorder level", "danger", "lookup-lowstock")}
+      ${statCard(ICONS.layers, "Total inventory value", `₱${totalValue.toLocaleString()}`,
+        `${state.inventory.length} SKUs · ${Math.abs(valueTrendPct) >= 0.1 ? `<span style="color:${valueTrendPct>=0?'var(--ok)':'var(--danger)'};">${valueTrendPct>=0?'▲':'▼'} ${Math.abs(valueTrendPct).toFixed(1)}%</span> this month` : 'flat this month'}`, "")}
     </div>
+
+    ${isAdmin() && pendingApprovals.length > 0 ? `
+    <div class="banner" style="cursor:pointer;justify-content:space-between;align-items:center;" data-action="set-view" data-view="adjustments">
+      <div style="display:flex;align-items:center;gap:10px;">${ICONS.adjust} ${pendingApprovals.length} adjustment${pendingApprovals.length===1?'':'s'} waiting on your approval</div>
+      <span style="font-size:11px;text-decoration:underline;">Review now →</span>
+    </div>` : ""}
 
     <div class="grid dash-row" style="grid-template-columns:2fr 1fr;margin-bottom:16px;">
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
-          <h2 style="font-size:13.5px;font-weight:600;margin:0;">In / Out frequency — last 7 days</h2>
+          <h2 style="font-size:13.5px;font-weight:600;margin:0;">Stock value flow — last 7 days</h2>
           <div style="display:flex;gap:12px;font-size:11px;color:var(--muted);">
             <span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:50%;background:var(--ok);"></span>In</span>
             <span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:50%;background:var(--accent);"></span>Out</span>
@@ -1096,8 +1141,8 @@ function renderDashboard() {
           ${days.map(d => `
             <div class="chart-day">
               <div class="bars">
-                <div class="bar bar-in" style="height:${(d.inCount/maxCount*170)||2}px;" title="In: ${d.inCount}"></div>
-                <div class="bar bar-out" style="height:${(d.outCount/maxCount*170)||2}px;" title="Out: ${d.outCount}"></div>
+                <div class="bar bar-in" style="height:${(d.inValue/maxValue*170)||2}px;" title="In: ₱${d.inValue.toLocaleString()} (${d.inCount} entr${d.inCount===1?'y':'ies'})"></div>
+                <div class="bar bar-out" style="height:${(d.outValue/maxValue*170)||2}px;" title="Out: ₱${d.outValue.toLocaleString()} (${d.outCount} entr${d.outCount===1?'y':'ies'})"></div>
               </div>
               <div class="chart-daylabel">${d.label}</div>
             </div>`).join("")}
@@ -1111,7 +1156,7 @@ function renderDashboard() {
         <div style="display:flex;flex-direction:column;gap:8px;max-height:230px;overflow-y:auto;">
           ${lowStock.length === 0 ? `<p style="font-size:12px;color:var(--muted);">No SKUs below reorder level.</p>` :
             lowStock.map(i => `
-              <div style="display:flex;align-items:center;justify-content:space-between;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:8px 10px;gap:8px;">
+              <div data-action="lookup-jump-sku" data-sku="${esc(i.sku)}" style="display:flex;align-items:center;justify-content:space-between;background:var(--field);border:1px solid var(--line);border-radius:3px;padding:8px 10px;gap:8px;cursor:pointer;">
                 <div style="min-width:0;">
                   <div class="mono" style="font-size:12px;">${esc(i.sku)}</div>
                   <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(i.description)}</div>
@@ -1131,7 +1176,7 @@ function renderDashboard() {
             <tbody>
               ${perLocator.length===0?`<tr><td colspan="4" style="text-align:center;color:var(--dim);padding:20px;">No locators yet — add one under Locators & Categories.</td></tr>`:
               perLocator.map(l => `
-                <tr>
+                <tr data-action="lookup-jump-locator" data-locator="${esc(l.code)}" style="cursor:pointer;">
                   <td><span class="tag">${esc(l.code)}</span></td>
                   <td style="color:var(--nav-text);">${esc(l.zone)}</td>
                   <td>${l.skuCount}</td>
@@ -1146,7 +1191,7 @@ function renderDashboard() {
         <div style="display:flex;flex-direction:column;gap:10px;">
           ${perCategory.length===0?`<p style="font-size:12px;color:var(--muted);">No categories yet — add one under Locators & Categories.</p>`:
           perCategory.map(c => `
-            <div>
+            <div data-action="lookup-jump-category" data-category="${esc(c.category)}" style="cursor:pointer;">
               <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;gap:8px;">
                 <span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.category)}</span>
                 <span class="mono" style="color:var(--muted);flex-shrink:0;">₱${c.value.toLocaleString()}</span>
@@ -1159,12 +1204,36 @@ function renderDashboard() {
         </div>
       </div>
     </div>
+
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+        <h2 style="font-size:13.5px;font-weight:600;margin:0;">Dead stock — no movement in 30+ days</h2>
+        <span style="font-size:12px;color:var(--muted);">${deadStock.length} SKU${deadStock.length===1?'':'s'} · <span class="mono" style="color:${deadStockValue>0?'var(--danger)':'var(--muted)'};">₱${deadStockValue.toLocaleString()}</span> tied up</span>
+      </div>
+      ${deadStock.length === 0 ? `<p style="font-size:12px;color:var(--muted);margin:0;">Every SKU with stock has moved in the last 30 days.</p>` : `
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>SKU</th><th>Description</th><th>Location</th><th>Qty</th><th>Value tied up</th></tr></thead>
+          <tbody>
+            ${[...deadStock].sort((a,b)=>(b.qty*b.unitValue)-(a.qty*a.unitValue)).slice(0,10).map(i => `
+              <tr data-action="lookup-jump-sku" data-sku="${esc(i.sku)}" style="cursor:pointer;">
+                <td class="mono" style="font-size:12px;">${esc(i.sku)}</td>
+                <td style="color:var(--nav-text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(i.description)}</td>
+                <td>${i.locator ? `<span class="tag">${esc(i.locator)}</span>` : "—"}</td>
+                <td>${i.qty}</td>
+                <td class="mono">₱${(i.qty*i.unitValue).toLocaleString()}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+      ${deadStock.length > 10 ? `<p style="font-size:11px;color:var(--dim);margin:10px 0 0;">+${deadStock.length-10} more not shown</p>` : ""}`}
+    </div>
   `;
 }
-function statCard(icon, label, value, sub, tone) {
+function statCard(icon, label, value, sub, tone, clickView) {
   const toneColor = tone === "ok" ? "var(--ok)" : tone === "accent" ? "var(--accent)" : tone === "danger" ? "var(--danger)" : "var(--text)";
   return `
-    <div class="card">
+    <div class="card" ${clickView ? `data-action="${clickView}" style="cursor:pointer;"` : ""}>
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <span class="stat-label">${label}</span>
         <span style="color:var(--muted);">${icon}</span>
@@ -1188,7 +1257,8 @@ function filteredInventory() {
     const matchQ = !q || i._skuLc.includes(q) || i._descLc.includes(q);
     const matchLoc = state.lookupLoc === "all" || i.locator === state.lookupLoc;
     const matchCat = state.lookupCat === "all" || i.category === state.lookupCat;
-    return matchQ && matchLoc && matchCat;
+    const matchLowStock = !state.lookupLowStockOnly || i.qty <= i.reorder;
+    return matchQ && matchLoc && matchCat && matchLowStock;
   });
 }
 
@@ -1223,6 +1293,10 @@ function renderLookup() {
         <option value="all" ${state.lookupLoc==='all'?'selected':''}>All locators</option>
         ${state.locators.map(l => `<option value="${l.code}" ${state.lookupLoc===l.code?'selected':''}>${l.code}</option>`).join("")}
       </select>
+      <label class="checkbox-row" style="flex-shrink:0;">
+        <input type="checkbox" id="lookup-lowstock-only" ${state.lookupLowStockOnly?'checked':''} style="width:auto;" />
+        Low-stock only
+      </label>
     </div>
 
     <div id="lookup-body">${renderLookupBody()}</div>
@@ -1533,15 +1607,18 @@ async function saveEditItem() {
     Object.assign(existing, payload);
     syncSearchCache(existing);
     if (payload.qty !== qtyBefore) {
+      const approvedAt = fmt(0);
       const adj = {
         id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
         sku: existing.sku, description: existing.description, reason: "Physical Count Correction",
         delta: payload.qty - qtyBefore, qtyBefore, qtyAfter: payload.qty,
         notes: "Quantity corrected via inventory item edit", user: state.session.name, timestamp: fmt(0),
+        status: "approved", approvedByName: state.session.name, approvedAt, rejectionReason: null,
       };
       await sb.from("adjustments").insert({ id: adj.id, sku: adj.sku, description: adj.description, reason: adj.reason,
         delta: adj.delta, qty_before: adj.qtyBefore, qty_after: adj.qtyAfter, notes: adj.notes,
-        user_name: adj.user, user_id: state.session.id, timestamp: adj.timestamp });
+        user_name: adj.user, user_id: state.session.id, timestamp: adj.timestamp,
+        status: "approved", approved_by: state.session.id, approved_by_name: state.session.name, approved_at: approvedAt });
       state.adjustments.unshift(adj);
     }
     showToast("Item updated", "ok");
@@ -1573,11 +1650,13 @@ async function runConfirmedAction() {
   if (!c) return;
   if (c.type === "reset-qty") {
     const toLog = state.inventory.filter(i => i.qty !== 0);
+    const resetApprovedAt = fmt(0);
     const adjRows = toLog.map(i => ({
       id: "ADJ-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000) + Math.floor(Math.random()*99),
       sku: i.sku, description: i.description, reason: "Physical Count Correction",
       delta: -i.qty, qty_before: i.qty, qty_after: 0,
       notes: "Bulk reset — all quantities set to 0 via Inventory Lookup", user_name: state.session.name, user_id: state.session.id, timestamp: fmt(0),
+      status: "approved", approved_by: state.session.id, approved_by_name: state.session.name, approved_at: resetApprovedAt,
     }));
     const { error: updErr } = await sb.from("inventory").update({ qty: 0 }).neq("sku", "");
     if (updErr) { showToast(updErr.message, "danger"); state.confirm = null; render(); return; }
@@ -1747,19 +1826,26 @@ function applyBarcodePayload(payload) {
   const item = state.inventory.find(i => i.sku === payload.sku);
   let idx = state.rows.findIndex(r => !r.sku);
   if (idx === -1) {
-    if (state.bulk) { state.rows.push({ sku: "", description: "", qty: "", notes: "", locator: "" }); idx = state.rows.length - 1; }
+    if (state.bulk) { state.rows.push({ sku: "", description: "", qty: "", notes: "", locator: "", price: "" }); idx = state.rows.length - 1; }
     else idx = 0;
   }
   state.rows[idx] = { ...state.rows[idx], sku: payload.sku, description: item ? item.description : state.rows[idx].description,
-    locator: state.rows[idx].locator || (item ? item.locator || "" : ""), _barcodeMeta: payload };
+    locator: state.rows[idx].locator || (item ? item.locator || "" : ""),
+    price: item ? String(item.unitValue) : state.rows[idx].price,
+    qty: "", // never carry over a stale quantity from whatever was previously in this row slot — always require a fresh manual entry
+    _barcodeMeta: payload };
   showToast(
-    item ? `${payload.inputMethod === "scanner" ? "Scanned" : "Entered"} ${payload.sku} — ${item.description}` : `SKU ${payload.sku} not found in inventory — row filled for review`,
+    item ? `${payload.inputMethod === "scanner" ? "Scanned" : "Entered"} ${payload.sku} — ${item.description}. Enter quantity.` : `SKU ${payload.sku} not found in inventory — row filled for review`,
     item ? "ok" : "danger"
   );
   render();
   requestAnimationFrame(() => {
-    const qtyInput = document.querySelector(`.row-qty[data-idx="${idx}"]`);
-    if (qtyInput) qtyInput.focus();
+    // Return focus to the scan input, not the qty field — keeps the system
+    // ready to receive the next physical scan immediately, and means a scan
+    // can never accidentally type its digits into the qty box. The user
+    // deliberately clicks/tabs into qty themselves to type it.
+    const scanInput = document.getElementById("barcode-manual-input");
+    if (scanInput) scanInput.focus();
   });
 }
 
@@ -1803,7 +1889,7 @@ function renderStock() {
 
     <div class="card" style="margin-bottom:16px;">
       <div class="row-head ${bulk?'':'single'}">
-        <div>SKU</div><div>Description</div><div>Qty</div><div>Location</div><div>Notes</div>${bulk?'<div></div>':''}
+        <div>SKU</div><div>Description</div><div>Qty</div><div>Price (₱)</div><div>Location</div><div>Notes</div>${bulk?'<div></div>':''}
       </div>
       <div id="rows-wrap">
         ${state.rows.map((row, idx) => renderStockRow(row, idx, bulk)).join("")}
@@ -1862,11 +1948,16 @@ function stockRowLocationOptions(row) {
 }
 function renderStockRow(row, idx, bulk) {
   const opts = stockRowLocationOptions(row);
+  const item = state.inventory.find(i => i.sku === row.sku);
+  const priceChanged = item && row.price !== "" && parseFloat(row.price) !== item.unitValue;
   return `
     <div class="row-grid ${bulk?'':'single'}" data-row="${idx}">
       <input list="sku-options" class="row-sku" placeholder="10112345" value="${esc(row.sku)}" data-idx="${idx}" data-field="sku" />
       <input class="row-desc" placeholder="Auto-filled from SKU" value="${esc(row.description)}" data-idx="${idx}" data-field="description" style="opacity:.85;" />
       <input type="number" min="0" class="row-qty" placeholder="0" value="${esc(row.qty)}" data-idx="${idx}" data-field="qty" />
+      <input type="number" min="0" step="0.01" class="row-price" placeholder="0.00" value="${esc(row.price)}" data-idx="${idx}" data-field="price"
+        title="${priceChanged ? `Changing this updates the system price for ${row.sku} everywhere` : ''}"
+        style="${priceChanged ? 'border-color:var(--accent);color:var(--accent);' : ''}" />
       <select class="row-locator" data-idx="${idx}" data-field="locator">
         <option value="" ${!row.locator?'selected':''}>Select location…</option>
         ${opts.map(o => `<option value="${esc(o.code)}" ${row.locator===o.code?'selected':''}>${esc(o.code)}${o.avail!=null?` (${o.avail} on hand)`:''}</option>`).join("")}
@@ -1886,6 +1977,7 @@ async function submitStock() {
   let invUpdates = [];
   let locUpdates = [];
   let hadError = false;
+  let priceChangedSkus = new Set();
   const seenLocs = new Map(); // sku -> Set of active locators, seeded lazily
 
   const activeLocsFor = (sku) => {
@@ -1940,7 +2032,16 @@ async function submitStock() {
     const wasUnlocated = !item.locator;
     const curLocQty = locQtyFor(r.sku, locator);
     const newQty = type === "IN" ? item.qty + qty : item.qty - qty;
-    invUpdates.push({ sku: item.sku, qty: newQty, locator: wasUnlocated ? locator : undefined });
+
+    // A price typed on this row updates the item's system-wide unit value,
+    // not just this one transaction — that's the whole point of having it here.
+    const priceRaw = r.price !== "" ? parseFloat(r.price) : null;
+    if (priceRaw !== null && !isNaN(priceRaw) && priceRaw >= 0 && priceRaw !== item.unitValue) {
+      item.unitValue = priceRaw;
+      priceChangedSkus.add(item.sku);
+    }
+
+    invUpdates.push({ sku: item.sku, qty: newQty, locator: wasUnlocated ? locator : undefined, unitValue: item.unitValue });
     item.qty = newQty;
     if (wasUnlocated) item.locator = locator;
 
@@ -1980,7 +2081,7 @@ async function submitStock() {
   locUpdates = dedupeByKey(locUpdates, u => `${u.sku}|${u.locator}`);
 
   const results = await Promise.all(invUpdates.map(u => {
-    const payload = { qty: u.qty };
+    const payload = { qty: u.qty, unit_value: u.unitValue };
     if (u.locator) payload.locator = u.locator;
     return sb.from("inventory").update(payload).eq("sku", u.sku);
   }));
@@ -2004,9 +2105,9 @@ async function submitStock() {
   if (txErr) { showToast(txErr.message, "danger"); return; }
 
   state.transactions.unshift(...newTx);
-  state.rows = [{ sku: "", description: "", qty: "", notes: "", locator: "" }];
+  state.rows = [{ sku: "", description: "", qty: "", notes: "", locator: "", price: "" }];
   state.barcodeManual = "";
-  showToast(`${newTx.length} stock ${type==='IN'?'in':'out'} entr${newTx.length>1?'ies':'y'} recorded`, "ok");
+  showToast(`${newTx.length} stock ${type==='IN'?'in':'out'} entr${newTx.length>1?'ies':'y'} recorded${priceChangedSkus.size ? ` — price updated for ${priceChangedSkus.size} SKU(s)` : ""}`, "ok");
   render();
 }
 
@@ -2480,7 +2581,7 @@ function renderLabelList() {
 function renderLabelField(f, selected) {
   const left = Math.round(f.x * LABEL_PX_PER_MM), top = Math.round(f.y * LABEL_PX_PER_MM);
   const w = Math.round(f.w * LABEL_PX_PER_MM), h = Math.round(f.h * LABEL_PX_PER_MM);
-  const baseStyle = `position:absolute;left:${left}px;top:${top}px;width:${w}px;height:${h}px;cursor:move;
+  const baseStyle = `position:absolute;left:${left}px;top:${top}px;width:${w}px;height:${h}px;cursor:move;touch-action:none;
     border:1px dashed ${selected ? 'var(--accent)' : 'var(--dim)'};${selected ? 'z-index:5;box-shadow:0 0 0 1px var(--accent);' : ''}
     overflow:hidden;display:flex;align-items:center;`;
   if (f.type === "barcode") {
@@ -2639,15 +2740,20 @@ function startLabelFieldDrag(e) {
   state.labelSelectedFieldId = id;
   const f = state.labelEditor.fields.find(x => x.id === id);
   if (!f) return;
-  _labelDrag = { id, startX: e.clientX, startY: e.clientY, origX: f.x, origY: f.y };
+  const point = e.touches ? e.touches[0] : e;
+  _labelDrag = { id, startX: point.clientX, startY: point.clientY, origX: f.x, origY: f.y };
   document.addEventListener("mousemove", onLabelFieldDrag);
   document.addEventListener("mouseup", endLabelFieldDrag);
+  document.addEventListener("touchmove", onLabelFieldDrag, { passive: false });
+  document.addEventListener("touchend", endLabelFieldDrag);
   render();
 }
 function onLabelFieldDrag(e) {
   if (!_labelDrag) return;
-  const dxMm = (e.clientX - _labelDrag.startX) / LABEL_PX_PER_MM;
-  const dyMm = (e.clientY - _labelDrag.startY) / LABEL_PX_PER_MM;
+  if (e.touches) e.preventDefault(); // stop the page from scrolling while dragging a field on a touchscreen
+  const point = e.touches ? e.touches[0] : e;
+  const dxMm = (point.clientX - _labelDrag.startX) / LABEL_PX_PER_MM;
+  const dyMm = (point.clientY - _labelDrag.startY) / LABEL_PX_PER_MM;
   const t = state.labelEditor;
   const f = t.fields.find(x => x.id === _labelDrag.id);
   if (!f) return;
@@ -2662,6 +2768,8 @@ function onLabelFieldDrag(e) {
 function endLabelFieldDrag() {
   document.removeEventListener("mousemove", onLabelFieldDrag);
   document.removeEventListener("mouseup", endLabelFieldDrag);
+  document.removeEventListener("touchmove", onLabelFieldDrag);
+  document.removeEventListener("touchend", endLabelFieldDrag);
   if (_labelDrag) { _labelDrag = null; render(); }
 }
 
@@ -2910,13 +3018,19 @@ function attachHandlers() {
       else showToast("Please complete all fields", "danger");
     }
     else if (action === "do-logout") doLogout();
-    else if (action === "set-view") { state.view = el.dataset.view; render(); }
+    else if (action === "set-view") { state.view = el.dataset.view; state.mobileNavOpen = false; render(); }
+    else if (action === "lookup-lowstock") { state.view = "lookup"; state.lookupLowStockOnly = true; state.lookupLoc = "all"; state.lookupCat = "all"; state.lookupQ = ""; render(); }
+    else if (action === "lookup-jump-sku") { state.view = "lookup"; state.lookupQ = el.dataset.sku; state.lookupLowStockOnly = false; render(); }
+    else if (action === "lookup-jump-locator") { state.view = "lookup"; state.lookupLoc = el.dataset.locator; state.lookupCat = "all"; state.lookupQ = ""; state.lookupLowStockOnly = false; render(); }
+    else if (action === "lookup-jump-category") { state.view = "lookup"; state.lookupCat = el.dataset.category; state.lookupLoc = "all"; state.lookupQ = ""; state.lookupLowStockOnly = false; render(); }
+    else if (action === "toggle-mobile-nav") { state.mobileNavOpen = !state.mobileNavOpen; render(); }
+    else if (action === "close-mobile-nav") { state.mobileNavOpen = false; render(); }
     else if (action === "set-stock-type") { state.stockType = el.dataset.type; render(); }
-    else if (action === "add-row") { state.rows.push({ sku:"", description:"", qty:"", notes:"", locator:"" }); render(); }
+    else if (action === "add-row") { state.rows.push({ sku:"", description:"", qty:"", notes:"", locator:"", price:"" }); render(); }
     else if (action === "remove-row") {
       const idx = +el.dataset.idx;
       state.rows.splice(idx, 1);
-      if (state.rows.length === 0) state.rows.push({ sku:"", description:"", qty:"", notes:"", locator:"" });
+      if (state.rows.length === 0) state.rows.push({ sku:"", description:"", qty:"", notes:"", locator:"", price:"" });
       render();
     }
     else if (action === "submit-stock") await submitStock();
@@ -3082,6 +3196,7 @@ function attachHandlers() {
     if (e.target.id === "bulk-toggle") { state.bulk = e.target.checked; render(); }
     else if (e.target.id === "lookup-loc") { state.lookupLoc = e.target.value; updateLookupResults(); }
     else if (e.target.id === "lookup-cat") { state.lookupCat = e.target.value; updateLookupResults(); }
+    else if (e.target.id === "lookup-lowstock-only") { state.lookupLowStockOnly = e.target.checked; updateLookupResults(); }
     else if (e.target.id === "adj-reason") { state._adjForm = state._adjForm || { sku:"", reason: ADJUSTMENT_REASONS[0], delta:"", notes:"" }; state._adjForm.reason = e.target.value; }
     else if (e.target.id === "import-file") {
       if (e.target.files && e.target.files[0]) await importCSVFile(e.target.files[0]);
@@ -3175,7 +3290,7 @@ function attachHandlers() {
       if (e.target.id === "adj-delta") state._adjForm.delta = e.target.value;
       if (e.target.id === "adj-notes") state._adjForm.notes = e.target.value;
     }
-    else if (e.target.classList.contains("row-sku") || e.target.classList.contains("row-desc") || e.target.classList.contains("row-qty") || e.target.classList.contains("row-notes")) {
+    else if (e.target.classList.contains("row-sku") || e.target.classList.contains("row-desc") || e.target.classList.contains("row-qty") || e.target.classList.contains("row-notes") || e.target.classList.contains("row-price")) {
       const idx = +e.target.dataset.idx;
       const field = e.target.dataset.field;
       state.rows[idx][field] = e.target.value;
@@ -3184,6 +3299,7 @@ function attachHandlers() {
         if (item) {
           state.rows[idx].description = item.description;
           if (!state.rows[idx].locator) state.rows[idx].locator = item.locator || "";
+          if (!state.rows[idx].price) state.rows[idx].price = String(item.unitValue);
           render(); refocus(`.row-sku[data-idx="${idx}"]`, true);
         }
       }
@@ -3191,6 +3307,9 @@ function attachHandlers() {
   };
 
   app.onmousedown = (e) => {
+    if (e.target.closest(".label-field")) startLabelFieldDrag(e);
+  };
+  app.ontouchstart = (e) => {
     if (e.target.closest(".label-field")) startLabelFieldDrag(e);
   };
 
