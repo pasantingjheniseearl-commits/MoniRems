@@ -648,6 +648,22 @@ function roleColor(role) {
 }
 function initials(name){ return name.split(" ").map(n=>n[0]).join(""); }
 function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function detectInAppBrowser() {
+  const ua = navigator.userAgent || "";
+  if (/FBAN|FBAV|FB_IAB/i.test(ua)) return "Facebook/Messenger";
+  if (/Instagram/i.test(ua)) return "Instagram";
+  if (/Line\//i.test(ua)) return "Line";
+  if (/MicroMessenger/i.test(ua)) return "WeChat";
+  if (/TikTok/i.test(ua)) return "TikTok";
+  if (/Twitter/i.test(ua)) return "Twitter/X";
+  // Generic Android WebView fallback (catches Viber and others without a
+  // unique signature) — "; wv)" marks an embedded app browser rather than
+  // a real standalone browser. Not reliable on iOS, where most in-app
+  // browsers don't add a distinguishing marker unless the app does it
+  // itself (as Facebook does above).
+  if (/; wv\)/i.test(ua)) return "an in-app browser";
+  return null;
+}
 function isAdmin(){ return !!state.session && state.session.role === "Admin"; }
 function canAdjust(){ return !!state.session && (state.session.role === "Admin" || state.session.role === "Stock Clerk"); }
 function canSubmitAdjustment(){ return !!state.session && state.session.role === "Stock Clerk"; }
@@ -668,6 +684,14 @@ function purgeOldMessages() {
 /* ---------------------------------------------------------
    AUTH ACTIONS — backed by Supabase Auth (auth.users + profiles)
 --------------------------------------------------------- */
+function friendlyFetchError(err) {
+  const msg = (err && err.message) || String(err) || "Sign-in failed";
+  const inAppApp = detectInAppBrowser();
+  if (inAppApp && /fetch/i.test(msg)) {
+    return `Can't connect — this looks like ${inAppApp}'s built-in browser blocking the connection. Tap ⋯ or the share icon and choose "Open in browser" instead.`;
+  }
+  return msg;
+}
 async function doLogin(usernameOrEmail, password) {
   try {
     let email = usernameOrEmail;
@@ -694,7 +718,7 @@ async function doLogin(usernameOrEmail, password) {
     subscribeRealtime();
     render();
   } catch (err) {
-    showToast(err.message || "Sign-in failed", "danger");
+    showToast(friendlyFetchError(err), "danger");
   }
 }
 async function doSignup(payload) {
@@ -729,7 +753,7 @@ async function doSignup(payload) {
     subscribeRealtime();
     render();
   } catch (err) {
-    showToast(err.message || "Sign-up failed", "danger");
+    showToast(friendlyFetchError(err), "danger");
   }
 }
 async function doLogout() {
@@ -809,11 +833,17 @@ function renderLoading() {
   </div></div>`;
 }
 function renderConnectionError() {
+  const inAppApp = detectInAppBrowser();
+  const looksLikeFetchBlock = inAppApp && /fetch/i.test(state.connectionError || "");
   return `<div class="auth-wrap"><div class="auth-card" style="max-width:420px;text-align:center;">
     <div style="color:var(--danger);margin-bottom:10px;display:flex;justify-content:center;">${ICONS.alert}</div>
     <h3 style="margin:0 0 8px;">Can't reach Supabase</h3>
     <p class="hint">${esc(state.connectionError)}</p>
-    <p class="hint">DEPOT/OS is online-only — it needs a working internet connection and Supabase project to run.</p>
+    ${looksLikeFetchBlock ? `
+      <p class="hint" style="color:var(--danger);">This usually means you're viewing this inside ${esc(inAppApp)}'s built-in browser, which blocks this kind of connection. Tap the ⋯ or share icon and choose "Open in browser" (Chrome, Safari, etc.) instead.</p>
+    ` : `
+      <p class="hint">DEPOT/OS is online-only — it needs a working internet connection and Supabase project to run.</p>
+    `}
     <button class="btn btn-primary" onclick="boot()">Retry</button>
   </div></div>`;
 }
@@ -824,6 +854,11 @@ function renderConnectionError() {
 function renderAuth() {
   const t = state.toast ? `<div class="toast toast-${t_tone()}">${esc(state.toast.msg)}</div>` : "";
   const mode = state.authMode;
+  const inAppApp = detectInAppBrowser();
+  const inAppWarning = inAppApp ? `
+    <div class="banner" style="background:var(--danger-dk);border-color:var(--danger-bd);color:var(--danger);">
+      ${ICONS.alert} You're viewing this inside ${esc(inAppApp)}'s built-in browser, which usually blocks this app from connecting (you'll see "Failed to fetch"). Tap the ⋯ or share icon and choose <strong>"Open in browser"</strong> (Chrome, Safari, etc.) instead.
+    </div>` : "";
   return `
   <div class="auth-wrap">
     <div class="auth-box">
@@ -834,6 +869,7 @@ function renderAuth() {
           <div class="brand-sub">Warehouse Monitor</div>
         </div>
       </div>
+      ${inAppWarning}
       <div class="auth-card">
         <div class="tabs">
           <button class="tab-btn ${mode==='login'?'active':''}" data-action="set-auth-mode" data-mode="login">Sign in</button>
