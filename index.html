@@ -283,6 +283,11 @@
     #print-area{visibility:visible;position:static;left:auto;}
     #print-area *{visibility:visible;}
   }
+
+  /* NTE / IR violation management */
+  .nte-timeline{border-left:2px solid var(--line);margin-left:8px;padding-left:16px;}
+  .nte-timeline-item{position:relative;padding-bottom:14px;}
+  .nte-timeline-dot{position:absolute;left:-21px;top:4px;width:8px;height:8px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);}
 </style>
 </head>
 <body>
@@ -290,6 +295,7 @@
 <div id="app"></div>
 <div id="print-area"></div>
 
+<script src="nte_ir.js"></script>
 <script>
 /* =============================================================
    DEPOT/OS — Warehouse Monitor
@@ -348,6 +354,7 @@ const ICONS = {
   filePdf: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>`,
   barcode: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5v14"/><path d="M7 5v14"/><path d="M11 5v14"/><path d="M14 5v14"/><path d="M18 5v14"/><path d="M21 5v14"/></svg>`,
   adjust: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>`,
+  gavel: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14 13-7.5 7.5"/><path d="M18 10a4 4 0 0 0-5.5-5.5L9 8"/><path d="m2 22 5.5-5.5"/><path d="M8 6 4 2"/><path d="m13.5 8.5 3 3"/><path d="M16 2l4 4"/></svg>`,
 };
 
 /* ---------------------------------------------------------
@@ -440,6 +447,7 @@ let state = {
   loginLogs: [],
   messages: [],
   adjustments: [],
+  violations: [],
 
   session: null,
   authMode: "login",
@@ -541,6 +549,7 @@ async function loadAllData() {
   state.loginLogs = (logsRes.data || []).map(l => ({ user: l.user_name, role: l.role, action: l.action, timestamp: l.timestamp }));
   state.messages = (msgRes.data || []).map(m => ({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp, read: !!m.read }));
   purgeOldMessages();
+  if (window.NteIr) await NteIr.loadViolations(sb, state);
 }
 
 function subscribeRealtime() {
@@ -648,22 +657,6 @@ function roleColor(role) {
 }
 function initials(name){ return name.split(" ").map(n=>n[0]).join(""); }
 function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-function detectInAppBrowser() {
-  const ua = navigator.userAgent || "";
-  if (/FBAN|FBAV|FB_IAB/i.test(ua)) return "Facebook/Messenger";
-  if (/Instagram/i.test(ua)) return "Instagram";
-  if (/Line\//i.test(ua)) return "Line";
-  if (/MicroMessenger/i.test(ua)) return "WeChat";
-  if (/TikTok/i.test(ua)) return "TikTok";
-  if (/Twitter/i.test(ua)) return "Twitter/X";
-  // Generic Android WebView fallback (catches Viber and others without a
-  // unique signature) — "; wv)" marks an embedded app browser rather than
-  // a real standalone browser. Not reliable on iOS, where most in-app
-  // browsers don't add a distinguishing marker unless the app does it
-  // itself (as Facebook does above).
-  if (/; wv\)/i.test(ua)) return "an in-app browser";
-  return null;
-}
 function isAdmin(){ return !!state.session && state.session.role === "Admin"; }
 function canAdjust(){ return !!state.session && (state.session.role === "Admin" || state.session.role === "Stock Clerk"); }
 function canSubmitAdjustment(){ return !!state.session && state.session.role === "Stock Clerk"; }
@@ -684,14 +677,6 @@ function purgeOldMessages() {
 /* ---------------------------------------------------------
    AUTH ACTIONS — backed by Supabase Auth (auth.users + profiles)
 --------------------------------------------------------- */
-function friendlyFetchError(err) {
-  const msg = (err && err.message) || String(err) || "Sign-in failed";
-  const inAppApp = detectInAppBrowser();
-  if (inAppApp && /fetch/i.test(msg)) {
-    return `Can't connect — this looks like ${inAppApp}'s built-in browser blocking the connection. Tap ⋯ or the share icon and choose "Open in browser" instead.`;
-  }
-  return msg;
-}
 async function doLogin(usernameOrEmail, password) {
   try {
     let email = usernameOrEmail;
@@ -718,7 +703,7 @@ async function doLogin(usernameOrEmail, password) {
     subscribeRealtime();
     render();
   } catch (err) {
-    showToast(friendlyFetchError(err), "danger");
+    showToast(err.message || "Sign-in failed", "danger");
   }
 }
 async function doSignup(payload) {
@@ -753,7 +738,7 @@ async function doSignup(payload) {
     subscribeRealtime();
     render();
   } catch (err) {
-    showToast(friendlyFetchError(err), "danger");
+    showToast(err.message || "Sign-up failed", "danger");
   }
 }
 async function doLogout() {
@@ -833,17 +818,11 @@ function renderLoading() {
   </div></div>`;
 }
 function renderConnectionError() {
-  const inAppApp = detectInAppBrowser();
-  const looksLikeFetchBlock = inAppApp && /fetch/i.test(state.connectionError || "");
   return `<div class="auth-wrap"><div class="auth-card" style="max-width:420px;text-align:center;">
     <div style="color:var(--danger);margin-bottom:10px;display:flex;justify-content:center;">${ICONS.alert}</div>
     <h3 style="margin:0 0 8px;">Can't reach Supabase</h3>
     <p class="hint">${esc(state.connectionError)}</p>
-    ${looksLikeFetchBlock ? `
-      <p class="hint" style="color:var(--danger);">This usually means you're viewing this inside ${esc(inAppApp)}'s built-in browser, which blocks this kind of connection. Tap the ⋯ or share icon and choose "Open in browser" (Chrome, Safari, etc.) instead.</p>
-    ` : `
-      <p class="hint">DEPOT/OS is online-only — it needs a working internet connection and Supabase project to run.</p>
-    `}
+    <p class="hint">DEPOT/OS is online-only — it needs a working internet connection and Supabase project to run.</p>
     <button class="btn btn-primary" onclick="boot()">Retry</button>
   </div></div>`;
 }
@@ -854,11 +833,6 @@ function renderConnectionError() {
 function renderAuth() {
   const t = state.toast ? `<div class="toast toast-${t_tone()}">${esc(state.toast.msg)}</div>` : "";
   const mode = state.authMode;
-  const inAppApp = detectInAppBrowser();
-  const inAppWarning = inAppApp ? `
-    <div class="banner" style="background:var(--danger-dk);border-color:var(--danger-bd);color:var(--danger);">
-      ${ICONS.alert} You're viewing this inside ${esc(inAppApp)}'s built-in browser, which usually blocks this app from connecting (you'll see "Failed to fetch"). Tap the ⋯ or share icon and choose <strong>"Open in browser"</strong> (Chrome, Safari, etc.) instead.
-    </div>` : "";
   return `
   <div class="auth-wrap">
     <div class="auth-box">
@@ -869,7 +843,6 @@ function renderAuth() {
           <div class="brand-sub">Warehouse Monitor</div>
         </div>
       </div>
-      ${inAppWarning}
       <div class="auth-card">
         <div class="tabs">
           <button class="tab-btn ${mode==='login'?'active':''}" data-action="set-auth-mode" data-mode="login">Sign in</button>
@@ -929,6 +902,7 @@ function renderShell() {
     { key: "lookup", label: "Inventory Lookup", icon: ICONS.search },
     { key: "stock", label: "Stock In / Out", icon: ICONS.boxes },
     ...(adjustAccess ? [{ key: "adjustments", label: "Adjustments", icon: ICONS.adjust }] : []),
+    { key: "nte_ir", label: "NTE / IR", icon: ICONS.gavel },
     ...(admin ? [{ key: "locators", label: "Locators & Categories", icon: ICONS.map }] : []),
     ...(admin ? [{ key: "users", label: "Users", icon: ICONS.users }] : []),
     { key: "labels", label: "Labels", icon: ICONS.tag },
@@ -997,6 +971,7 @@ function renderView() {
     case "lookup": return renderLookup();
     case "stock": return renderStock();
     case "adjustments": return canAdjust() ? renderAdjustments() : renderDashboard();
+    case "nte_ir": return window.NteIr ? NteIr.renderNteIr(state) : renderDashboard();
     case "locators": return isAdmin() ? renderLocators() : renderDashboard();
     case "users": return isAdmin() ? renderUsers() : renderDashboard();
     case "labels": return renderLabels();
@@ -1725,6 +1700,8 @@ async function runConfirmedAction() {
     if (error) { showToast(error.message, "danger"); state.confirm = null; render(); return; }
     state.labelTemplates = state.labelTemplates.filter(t => t.id !== c.payload);
     showToast("Template deleted", "ok");
+  } else if (c.type === "nte-delete-case" && window.NteIr) {
+    await NteIr.runConfirmedAction(c.type, c.payload, state);
   }
   state.confirm = null;
   render();
@@ -3020,6 +2997,7 @@ function renderProfile() {
 --------------------------------------------------------- */
 function attachHandlers() {
   const app = document.getElementById("app");
+  if (window.NteIr) NteIr.wireHandlers(app);
 
   app.onclick = async (e) => {
     const el = e.target.closest("[data-action]");
@@ -3372,6 +3350,9 @@ function refocus(idOrSelector, isSelector) {
   });
 }
 
+if (window.NteIr) {
+  NteIr.integrate({ state, sb, showToast, render, fmt, esc, isAdmin, askConfirm, loadScriptOnce, statCard, ICONS, JSPDF_URL });
+}
 boot();
 </script>
 </body>

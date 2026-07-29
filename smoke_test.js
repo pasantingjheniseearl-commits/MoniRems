@@ -20,7 +20,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const indexPath = process.argv[2] || path.join(__dirname, "..", "index.html");
+const indexPath = process.argv[2] || path.join(__dirname, "index.html");
 const html = fs.readFileSync(indexPath, "utf8");
 const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 const appScript = scripts.sort((a, b) => b.length - a.length)[0]; // the big one is the app
