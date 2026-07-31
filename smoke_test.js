@@ -20,7 +20,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const indexPath = process.argv[2] || path.join(__dirname, "index.html");
+const indexPath = process.argv[2] || path.join(__dirname, "..", "index.html");
 const html = fs.readFileSync(indexPath, "utf8");
 const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 const appScript = scripts.sort((a, b) => b.length - a.length)[0]; // the big one is the app
@@ -92,11 +92,23 @@ function makeFakeSupabase(store) {
       return { data: arr, error: null };
     }
   }
+  const fakeStorageFiles = {};
   return {
     from(table) { store[table] = store[table] || []; return new FakeQuery(table); },
     channel() { return { on() { return this; }, subscribe() { return this; } }; },
     removeChannel() {},
     rpc: async () => ({ data: null, error: null }),
+    storage: {
+      from(bucket) {
+        return {
+          upload: async (path, file) => { fakeStorageFiles[`${bucket}/${path}`] = file; return { data: { path }, error: null }; },
+          createSignedUrl: async (path) => {
+            if (!fakeStorageFiles[`${bucket}/${path}`]) return { data: null, error: { message: "Not found" } };
+            return { data: { signedUrl: `https://fake-storage.test/${bucket}/${path}` }, error: null };
+          },
+        };
+      },
+    },
     auth: {
       getSession: async () => ({ data: { session: null }, error: null }),
       onAuthStateChange: () => {},
@@ -171,7 +183,8 @@ try {
 for (const name of ["state", "submitStock", "importCSVFile", "parseCSV", "fmt", "getSkuLocations",
   "generateRetailBarcode", "isValidEan13", "sampleValueForBind", "addLabelField", "updateLabelField", "deleteLabelField", "saveLabelTemplate", "newFieldId",
   "resolveItemFromScan", "handleLabelScan", "resolvedFieldValue", "printFieldValue", "triggerLabelPrint", "barcodeRenderOptions", "minBarcodeFieldWidthMm",
-  "submitAdjustment", "approveAdjustment", "rejectAdjustment", "canSubmitAdjustment", "canApproveAdjustments", "applyBarcodePayload", "saveEditItem", "filteredInventory"]) {
+  "submitAdjustment", "approveAdjustment", "rejectAdjustment", "canSubmitAdjustment", "canApproveAdjustments", "applyBarcodePayload", "saveEditItem", "filteredInventory",
+  "submitIRReport", "approveIRReport", "rejectIRReport", "checkAndGenerateNTE", "uploadExplanation", "resolveNTECase", "canFileIR", "manilaDateKey"]) {
   sandbox[name] = vm.runInContext(name, sandbox);
 }
 
@@ -535,6 +548,99 @@ async function main() {
   check("low-stock-only filter narrows results", lowStockResults.length < allResults, `all=${allResults}, filtered=${lowStockResults.length}`);
   check("every result is actually at or below its reorder level", lowStockResults.every(i => i.qty <= i.reorder));
   check("the forced-low-stock item is included", lowStockResults.some(i => i.sku === "10000002"));
+
+  // ---------------------------------------------------------
+  // IR / NTE disciplinary tracking system
+  // ---------------------------------------------------------
+  section("IR/NTE: setup and role gating");
+  const adminUser = { id: "u1", name: "Test Admin", username: "testadmin", role: "Admin", status: "online", approved: true };
+  const clerkUser = { id: "u4", name: "Test Clerk2", username: "clerk2", role: "Stock Clerk", status: "online", approved: true };
+  const sellingUser = { id: "u5", name: "Test Selling", username: "selling1", role: "Selling Clerk", status: "online", approved: true };
+  const subjectUser = { id: "u6", name: "Subject Employee", username: "subjemp", role: "Stock Clerk", status: "online", approved: true };
+  sandbox.state.users.push(adminUser, clerkUser, sellingUser, subjectUser);
+
+  sandbox.state.session = adminUser;
+  check("Admin can file IR", sandbox.canFileIR() === true);
+  sandbox.state.session = clerkUser;
+  check("Stock Clerk can file IR", sandbox.canFileIR() === true);
+  sandbox.state.session = sellingUser;
+  check("Selling Clerk cannot file IR", sandbox.canFileIR() === false);
+
+  section("IR/NTE: Admin filing counts immediately");
+  sandbox.state.session = adminUser;
+  sandbox.state.irForm = { subjectUserId: subjectUser.id, category: "Attendance", violationCode: "Late", incidentDate: "2026-06-01", description: "Arrived 40 minutes late." };
+  await sandbox.submitIRReport();
+  const adminFiledIR = sandbox.state.irReports[0];
+  check("IR created", !!adminFiledIR);
+  check("Admin-filed IR is immediately approved", adminFiledIR && adminFiledIR.status === "approved", adminFiledIR && adminFiledIR.status);
+  check("reviewedByName set to the admin who filed it", adminFiledIR && adminFiledIR.reviewedByName === "Test Admin");
+
+  section("IR/NTE: Stock Clerk filing is pending, does not count");
+  sandbox.state.session = clerkUser;
+  sandbox.state.irForm = { subjectUserId: subjectUser.id, category: "Violation", violationCode: "Blocking Fire Exit", incidentDate: "2026-06-05", description: "Pallets left in front of fire exit near bay 3." };
+  await sandbox.submitIRReport();
+  const clerkFiledIR = sandbox.state.irReports[0];
+  check("Stock-Clerk-filed IR is pending", clerkFiledIR && clerkFiledIR.status === "pending", clerkFiledIR && clerkFiledIR.status);
+  const nteCountBeforeApproval = sandbox.state.nteReports.length;
+
+  section("IR/NTE: approval role gating");
+  sandbox.state.session = clerkUser;
+  await sandbox.approveIRReport(clerkFiledIR.id); // Stock Clerk should NOT be able to approve
+  check("Stock Clerk cannot approve a report", sandbox.state.irReports.find(r=>r.id===clerkFiledIR.id).status === "pending");
+
+  section("IR/NTE: Admin approves — now it counts, and triggers the NTE check");
+  sandbox.state.session = adminUser;
+  await sandbox.approveIRReport(clerkFiledIR.id);
+  check("Approved report now counts", sandbox.state.irReports.find(r=>r.id===clerkFiledIR.id).status === "approved");
+  check("Only 2 approved violations so far — no NTE yet", sandbox.state.nteReports.length === nteCountBeforeApproval, `nte count=${sandbox.state.nteReports.length}`);
+
+  section("IR/NTE: 3rd violation within the window auto-generates an NTE");
+  sandbox.state.irForm = { subjectUserId: subjectUser.id, category: "Work Performance", violationCode: "Negligence", incidentDate: "2026-06-10", description: "Left forklift unattended with engine running." };
+  await sandbox.submitIRReport(); // Admin filing #3 — auto-approved, should trigger NTE
+  const generatedNte = sandbox.state.nteReports[0];
+  check("NTE auto-generated on the 3rd violation", !!generatedNte, JSON.stringify(sandbox.state.nteReports));
+  check("NTE bundles exactly 3 violations", sandbox.state.irReports.filter(r => r.nteId === (generatedNte&&generatedNte.id)).length === 3);
+  check("NTE starts in awaiting_explanation status", generatedNte && generatedNte.status === "awaiting_explanation", generatedNte && generatedNte.status);
+  check("NTE subject matches the employee", generatedNte && generatedNte.subjectUserId === subjectUser.id);
+
+  section("IR/NTE: a 4th violation alone does not trigger a second NTE");
+  sandbox.state.irForm = { subjectUserId: subjectUser.id, category: "Attendance", violationCode: "Leaving Work Early", incidentDate: "2026-06-15", description: "Left 2 hours before shift end without notice." };
+  await sandbox.submitIRReport();
+  check("still only 1 NTE — need 2 more un-bundled violations for the next one", sandbox.state.nteReports.length === 1, `nte count=${sandbox.state.nteReports.length}`);
+
+  section("IR/NTE: violations outside the rolling window are excluded from bundling");
+  const staleSubject = { id: "u7", name: "Stale Subject", username: "stalesubj", role: "Stock Clerk", status: "online", approved: true };
+  sandbox.state.users.push(staleSubject);
+  const oldDate = sandbox.manilaDateKey ? sandbox.manilaDateKey(new Date(Date.now() - 120*86400000)) : "2020-01-01";
+  sandbox.state.irForm = { subjectUserId: staleSubject.id, category: "Violation", violationCode: "Poor Housekeeping", incidentDate: oldDate, description: "Old violation outside the window." };
+  await sandbox.submitIRReport();
+  sandbox.state.irForm = { subjectUserId: staleSubject.id, category: "Violation", violationCode: "Improper Storage", incidentDate: "2026-06-20", description: "Recent violation 1." };
+  await sandbox.submitIRReport();
+  sandbox.state.irForm = { subjectUserId: staleSubject.id, category: "Violation", violationCode: "Improper Stacking", incidentDate: "2026-06-21", description: "Recent violation 2." };
+  await sandbox.submitIRReport();
+  const staleSubjectNtes = sandbox.state.nteReports.filter(n => n.subjectUserId === staleSubject.id);
+  check("only 2 violations within the window — old one excluded, no NTE yet", staleSubjectNtes.length === 0, `nte count=${staleSubjectNtes.length}`);
+
+  section("IR/NTE: explanation upload validation and flow");
+  sandbox.state.session = subjectUser;
+  const badFile = { name: "explanation.txt", type: "text/plain", size: 1000 };
+  await sandbox.uploadExplanation(generatedNte.id, badFile);
+  check("wrong file type rejected", sandbox.state.nteReports.find(n=>n.id===generatedNte.id).status === "awaiting_explanation");
+  const goodFile = { name: "explanation.pdf", type: "application/pdf", size: 50000 };
+  await sandbox.uploadExplanation(generatedNte.id, goodFile);
+  const afterUpload = sandbox.state.nteReports.find(n=>n.id===generatedNte.id);
+  check("valid PDF upload moves case to explanation_submitted", afterUpload.status === "explanation_submitted", afterUpload.status);
+  check("explanation file name recorded", afterUpload.explanationFileName === "explanation.pdf");
+
+  section("IR/NTE: only Admin can resolve, and only after explanation is in");
+  sandbox.state.session = subjectUser;
+  await sandbox.resolveNTECase(generatedNte.id, "Trying to close my own case");
+  check("non-admin cannot resolve a case", sandbox.state.nteReports.find(n=>n.id===generatedNte.id).status === "explanation_submitted");
+  sandbox.state.session = adminUser;
+  await sandbox.resolveNTECase(generatedNte.id, "Verbal warning issued; employee acknowledged the incidents.");
+  const resolved = sandbox.state.nteReports.find(n=>n.id===generatedNte.id);
+  check("Admin resolves the case", resolved.status === "resolved", resolved.status);
+  check("resolution notes recorded", resolved.resolutionNotes === "Verbal warning issued; employee acknowledged the incidents.");
 
   section("Philippine timezone");
   const stamp = sandbox.fmt(0);

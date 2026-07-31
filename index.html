@@ -283,11 +283,6 @@
     #print-area{visibility:visible;position:static;left:auto;}
     #print-area *{visibility:visible;}
   }
-
-  /* NTE / IR violation management */
-  .nte-timeline{border-left:2px solid var(--line);margin-left:8px;padding-left:16px;}
-  .nte-timeline-item{position:relative;padding-bottom:14px;}
-  .nte-timeline-dot{position:absolute;left:-21px;top:4px;width:8px;height:8px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);}
 </style>
 </head>
 <body>
@@ -295,7 +290,6 @@
 <div id="app"></div>
 <div id="print-area"></div>
 
-<script src="nte_ir.js"></script>
 <script>
 /* =============================================================
    DEPOT/OS — Warehouse Monitor
@@ -320,6 +314,7 @@
 --------------------------------------------------------- */
 const ICONS = {
   hamburger: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`,
+  clipboard: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="15" y2="16"/></svg>`,
   sun: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`,
   moon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>`,
   grid: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
@@ -354,7 +349,6 @@ const ICONS = {
   filePdf: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>`,
   barcode: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5v14"/><path d="M7 5v14"/><path d="M11 5v14"/><path d="M14 5v14"/><path d="M18 5v14"/><path d="M21 5v14"/></svg>`,
   adjust: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>`,
-  gavel: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14 13-7.5 7.5"/><path d="M18 10a4 4 0 0 0-5.5-5.5L9 8"/><path d="m2 22 5.5-5.5"/><path d="M8 6 4 2"/><path d="m13.5 8.5 3 3"/><path d="M16 2l4 4"/></svg>`,
 };
 
 /* ---------------------------------------------------------
@@ -364,6 +358,16 @@ const ICONS = {
 --------------------------------------------------------- */
 const ROLES = ["Admin", "Stock Clerk", "Selling Clerk"];
 const ADJUSTMENT_REASONS = ["Damaged", "Expired", "Stolen / Shrinkage", "Physical Count Correction", "Other"];
+const IR_CATEGORIES = {
+  "Violation": ["Failure to Follow FIFO", "Failure to Follow FEFO", "Improper Storage", "Overstocking Bin", "Mixed SKU Storage",
+    "Improper Stacking", "Exceeding Stack Height", "Blocking Fire Exit", "Blocking Aisles", "Leaving Empty Pallets",
+    "Poor Housekeeping", "Failure to Label Items", "Damaged Goods Left in Selling Area", "Failure to Segregate Damage", "Unsecured Inventory"],
+  "Attendance": ["Late", "Absent Without Leave (AWOL)", "Habitual Tardiness", "Unauthorized Overtime", "Leaving Work Early", "Failure to Log In/Out"],
+  "Work Performance": ["Failure to Follow SOP", "Negligence", "Failure to Meet Productivity Target", "Poor Inventory Handling",
+    "Incorrect Encoding", "Repeated Errors", "Failure to Complete Assigned Task", "Carelessness", "Failure to Report Incident"],
+};
+const NTE_ROLLING_WINDOW_DAYS = 90;
+const NTE_VIOLATION_THRESHOLD = 3;
 
 function manilaDateKey(date) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -443,11 +447,18 @@ let state = {
   labelScanBuffer: "",
   labelPrint: null, // { templateId, item, overrides: {fieldId: value}, copies } once a SKU is resolved
   mobileNavOpen: false,
+  irReports: [],
+  nteReports: [],
+  irTab: "file",
+  irForm: { subjectUserId: "", category: "Violation", violationCode: IR_CATEGORIES["Violation"][0], incidentDate: "", description: "" },
+  irReports: [],
+  nteReports: [],
+  irTab: "file",
+  irForm: null,
   transactions: [],
   loginLogs: [],
   messages: [],
   adjustments: [],
-  violations: [],
 
   session: null,
   authMode: "login",
@@ -490,6 +501,19 @@ function mapAdjRow(a) {
     status: a.status || "approved", approvedByName: a.approved_by_name || null, approvedAt: a.approved_at || null,
     rejectionReason: a.rejection_reason || null };
 }
+function mapIrReport(r) {
+  return { id: r.id, subjectUserId: r.subject_user_id, subjectName: r.subject_name,
+    filedByUserId: r.filed_by_user_id, filedByName: r.filed_by_name, filerRole: r.filer_role,
+    category: r.category, violationCode: r.violation_code, incidentDate: r.incident_date, description: r.description,
+    status: r.status, reviewedByName: r.reviewed_by_name || null, reviewedAt: r.reviewed_at || null,
+    rejectionReason: r.rejection_reason || null, nteId: r.nte_id || null, timestamp: r.timestamp };
+}
+function mapNteReport(n) {
+  return { id: n.id, subjectUserId: n.subject_user_id, subjectName: n.subject_name, generatedAt: n.generated_at,
+    status: n.status, explanationFilePath: n.explanation_file_path || null, explanationFileName: n.explanation_file_name || null,
+    explanationUploadedAt: n.explanation_uploaded_at || null, resolutionNotes: n.resolution_notes || null,
+    resolvedByName: n.resolved_by_name || null, resolvedAt: n.resolved_at || null };
+}
 function syncSearchCache(item) {
   item._skuLc = (item.sku||"").toLowerCase();
   item._descLc = (item.description||"").toLowerCase();
@@ -526,13 +550,15 @@ async function fetchAllRows(table, orderCol) {
   return { data: all, error: null };
 }
 async function loadAllData() {
-  const [profilesRes, categoriesRes, locatorsRes, inventoryRes, skuLocRes, labelRes, txRes, adjRes, logsRes, msgRes] = await Promise.all([
+  const [profilesRes, categoriesRes, locatorsRes, inventoryRes, skuLocRes, labelRes, irRes, nteRes, txRes, adjRes, logsRes, msgRes] = await Promise.all([
     sb.from("profiles").select("*").order("name"),
     sb.from("categories").select("*").order("name"),
     sb.from("locators").select("*").order("code"),
     fetchAllRows("inventory", "sku"),
     sb.from("sku_locations").select("*"),
     sb.from("label_templates").select("*").order("name"),
+    sb.from("ir_reports").select("*").order("timestamp", { ascending: false }),
+    sb.from("nte_reports").select("*").order("generated_at", { ascending: false }),
     sb.from("transactions").select("*").order("created_at", { ascending: false }).limit(1000),
     sb.from("adjustments").select("*").order("created_at", { ascending: false }).limit(500),
     sb.from("login_logs").select("*").order("created_at", { ascending: false }).limit(300),
@@ -544,12 +570,13 @@ async function loadAllData() {
   state.inventory = (inventoryRes.data || []).map(mapInvRow);
   state.skuLocations = (skuLocRes.data || []).map(mapSkuLocRow);
   state.labelTemplates = (labelRes.data || []).map(mapLabelTemplate);
+  state.irReports = (irRes.data || []).map(mapIrReport);
+  state.nteReports = (nteRes.data || []).map(mapNteReport);
   state.transactions = (txRes.data || []).map(mapTxRow);
   state.adjustments = (adjRes.data || []).map(mapAdjRow);
   state.loginLogs = (logsRes.data || []).map(l => ({ user: l.user_name, role: l.role, action: l.action, timestamp: l.timestamp }));
   state.messages = (msgRes.data || []).map(m => ({ id: m.id, from: m.from_id, to: m.to_id, text: m.text, timestamp: m.timestamp, read: !!m.read }));
   purgeOldMessages();
-  if (window.NteIr) await NteIr.loadViolations(sb, state);
 }
 
 function subscribeRealtime() {
@@ -605,6 +632,32 @@ function subscribeRealtime() {
       render();
     })
     .subscribe();
+  const irCh = sb.channel("ir-reports-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "ir_reports" }, (payload) => {
+      if (payload.eventType === "DELETE") {
+        state.irReports = state.irReports.filter(r => r.id !== payload.old.id);
+      } else {
+        const mapped = mapIrReport(payload.new);
+        const idx = state.irReports.findIndex(r => r.id === mapped.id);
+        if (idx > -1) state.irReports[idx] = mapped;
+        else state.irReports.unshift(mapped);
+      }
+      render();
+    })
+    .subscribe();
+  const nteCh = sb.channel("nte-reports-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "nte_reports" }, (payload) => {
+      if (payload.eventType === "DELETE") {
+        state.nteReports = state.nteReports.filter(n => n.id !== payload.old.id);
+      } else {
+        const mapped = mapNteReport(payload.new);
+        const idx = state.nteReports.findIndex(n => n.id === mapped.id);
+        if (idx > -1) state.nteReports[idx] = mapped;
+        else state.nteReports.unshift(mapped);
+      }
+      render();
+    })
+    .subscribe();
   const msgCh = sb.channel("messages-changes")
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
       const m = payload.new;
@@ -636,7 +689,7 @@ function subscribeRealtime() {
       }
     })
     .subscribe();
-  _rtChannels = [profCh, invCh, skuLocCh, txCh, labelTplCh, msgCh];
+  _rtChannels = [profCh, invCh, skuLocCh, txCh, labelTplCh, irCh, nteCh, msgCh];
 }
 function unsubscribeRealtime() {
   _rtChannels.forEach(ch => sb.removeChannel(ch));
@@ -657,10 +710,27 @@ function roleColor(role) {
 }
 function initials(name){ return name.split(" ").map(n=>n[0]).join(""); }
 function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function detectInAppBrowser() {
+  const ua = navigator.userAgent || "";
+  if (/FBAN|FBAV|FB_IAB/i.test(ua)) return "Facebook/Messenger";
+  if (/Instagram/i.test(ua)) return "Instagram";
+  if (/Line\//i.test(ua)) return "Line";
+  if (/MicroMessenger/i.test(ua)) return "WeChat";
+  if (/TikTok/i.test(ua)) return "TikTok";
+  if (/Twitter/i.test(ua)) return "Twitter/X";
+  // Generic Android WebView fallback (catches Viber and others without a
+  // unique signature) — "; wv)" marks an embedded app browser rather than
+  // a real standalone browser. Not reliable on iOS, where most in-app
+  // browsers don't add a distinguishing marker unless the app does it
+  // itself (as Facebook does above).
+  if (/; wv\)/i.test(ua)) return "an in-app browser";
+  return null;
+}
 function isAdmin(){ return !!state.session && state.session.role === "Admin"; }
 function canAdjust(){ return !!state.session && (state.session.role === "Admin" || state.session.role === "Stock Clerk"); }
 function canSubmitAdjustment(){ return !!state.session && state.session.role === "Stock Clerk"; }
 function canApproveAdjustments(){ return !!state.session && state.session.role === "Admin"; }
+function canFileIR(){ return !!state.session && (state.session.role === "Admin" || state.session.role === "Stock Clerk"); }
 
 /* ---------------------------------------------------------
    MESSAGE RETENTION (auto-purge after 3 months / ~90 days)
@@ -677,6 +747,14 @@ function purgeOldMessages() {
 /* ---------------------------------------------------------
    AUTH ACTIONS — backed by Supabase Auth (auth.users + profiles)
 --------------------------------------------------------- */
+function friendlyFetchError(err) {
+  const msg = (err && err.message) || String(err) || "Sign-in failed";
+  const inAppApp = detectInAppBrowser();
+  if (inAppApp && /fetch/i.test(msg)) {
+    return `Can't connect — this looks like ${inAppApp}'s built-in browser blocking the connection. Tap ⋯ or the share icon and choose "Open in browser" instead.`;
+  }
+  return msg;
+}
 async function doLogin(usernameOrEmail, password) {
   try {
     let email = usernameOrEmail;
@@ -703,7 +781,7 @@ async function doLogin(usernameOrEmail, password) {
     subscribeRealtime();
     render();
   } catch (err) {
-    showToast(err.message || "Sign-in failed", "danger");
+    showToast(friendlyFetchError(err), "danger");
   }
 }
 async function doSignup(payload) {
@@ -738,7 +816,7 @@ async function doSignup(payload) {
     subscribeRealtime();
     render();
   } catch (err) {
-    showToast(err.message || "Sign-up failed", "danger");
+    showToast(friendlyFetchError(err), "danger");
   }
 }
 async function doLogout() {
@@ -818,11 +896,17 @@ function renderLoading() {
   </div></div>`;
 }
 function renderConnectionError() {
+  const inAppApp = detectInAppBrowser();
+  const looksLikeFetchBlock = inAppApp && /fetch/i.test(state.connectionError || "");
   return `<div class="auth-wrap"><div class="auth-card" style="max-width:420px;text-align:center;">
     <div style="color:var(--danger);margin-bottom:10px;display:flex;justify-content:center;">${ICONS.alert}</div>
     <h3 style="margin:0 0 8px;">Can't reach Supabase</h3>
     <p class="hint">${esc(state.connectionError)}</p>
-    <p class="hint">DEPOT/OS is online-only — it needs a working internet connection and Supabase project to run.</p>
+    ${looksLikeFetchBlock ? `
+      <p class="hint" style="color:var(--danger);">This usually means you're viewing this inside ${esc(inAppApp)}'s built-in browser, which blocks this kind of connection. Tap the ⋯ or share icon and choose "Open in browser" (Chrome, Safari, etc.) instead.</p>
+    ` : `
+      <p class="hint">DEPOT/OS is online-only — it needs a working internet connection and Supabase project to run.</p>
+    `}
     <button class="btn btn-primary" onclick="boot()">Retry</button>
   </div></div>`;
 }
@@ -833,6 +917,11 @@ function renderConnectionError() {
 function renderAuth() {
   const t = state.toast ? `<div class="toast toast-${t_tone()}">${esc(state.toast.msg)}</div>` : "";
   const mode = state.authMode;
+  const inAppApp = detectInAppBrowser();
+  const inAppWarning = inAppApp ? `
+    <div class="banner" style="background:var(--danger-dk);border-color:var(--danger-bd);color:var(--danger);">
+      ${ICONS.alert} You're viewing this inside ${esc(inAppApp)}'s built-in browser, which usually blocks this app from connecting (you'll see "Failed to fetch"). Tap the ⋯ or share icon and choose <strong>"Open in browser"</strong> (Chrome, Safari, etc.) instead.
+    </div>` : "";
   return `
   <div class="auth-wrap">
     <div class="auth-box">
@@ -843,6 +932,7 @@ function renderAuth() {
           <div class="brand-sub">Warehouse Monitor</div>
         </div>
       </div>
+      ${inAppWarning}
       <div class="auth-card">
         <div class="tabs">
           <button class="tab-btn ${mode==='login'?'active':''}" data-action="set-auth-mode" data-mode="login">Sign in</button>
@@ -902,10 +992,10 @@ function renderShell() {
     { key: "lookup", label: "Inventory Lookup", icon: ICONS.search },
     { key: "stock", label: "Stock In / Out", icon: ICONS.boxes },
     ...(adjustAccess ? [{ key: "adjustments", label: "Adjustments", icon: ICONS.adjust }] : []),
-    { key: "nte_ir", label: "NTE / IR", icon: ICONS.gavel },
     ...(admin ? [{ key: "locators", label: "Locators & Categories", icon: ICONS.map }] : []),
     ...(admin ? [{ key: "users", label: "Users", icon: ICONS.users }] : []),
     { key: "labels", label: "Labels", icon: ICONS.tag },
+    { key: "conduct", label: "IR / NTE", icon: ICONS.clipboard },
     ...(admin ? [{ key: "transactions", label: "Transaction Log", icon: ICONS.scroll }] : []),
     { key: "profile", label: "Profile", icon: ICONS.user },
   ];
@@ -971,10 +1061,10 @@ function renderView() {
     case "lookup": return renderLookup();
     case "stock": return renderStock();
     case "adjustments": return canAdjust() ? renderAdjustments() : renderDashboard();
-    case "nte_ir": return window.NteIr ? NteIr.renderNteIr(state) : renderDashboard();
     case "locators": return isAdmin() ? renderLocators() : renderDashboard();
     case "users": return isAdmin() ? renderUsers() : renderDashboard();
     case "labels": return renderLabels();
+    case "conduct": return renderIR();
     case "transactions": return isAdmin() ? renderTransactions() : renderDashboard();
     case "profile": return renderProfile();
     default: return renderDashboard();
@@ -1700,8 +1790,6 @@ async function runConfirmedAction() {
     if (error) { showToast(error.message, "danger"); state.confirm = null; render(); return; }
     state.labelTemplates = state.labelTemplates.filter(t => t.id !== c.payload);
     showToast("Template deleted", "ok");
-  } else if (c.type === "nte-delete-case" && window.NteIr) {
-    await NteIr.runConfirmedAction(c.type, c.payload, state);
   }
   state.confirm = null;
   render();
@@ -2281,6 +2369,446 @@ async function rejectAdjustment(id, reason) {
   Object.assign(adj, { status: "rejected", approvedByName: state.session.name, approvedAt: rejectedAt, rejectionReason: reason || null });
   showToast("Adjustment rejected", "ok");
   render();
+}
+
+/* ---------------------------------------------------------
+   INCIDENT REPORTS (IR) & NOTICES TO EXPLAIN (NTE)
+   -----------------------------------------------------------
+   Admin files an IR -> counts immediately (approved).
+   Stock Clerk files an IR -> pending until an Admin approves it.
+   Once an employee has 3 APPROVED, not-yet-bundled violations
+   within a rolling 90-day window, the oldest 3 are bundled into
+   a new NTE automatically. An NTE stays open until the employee
+   uploads an explanation, and even then stays open until an
+   Admin records a resolution.
+--------------------------------------------------------- */
+async function checkAndGenerateNTE(subjectUserId) {
+  const cutoff = manilaDateKey(new Date(Date.now() - NTE_ROLLING_WINDOW_DAYS * 86400000));
+  const eligible = state.irReports
+    .filter(r => r.subjectUserId === subjectUserId && r.status === "approved" && !r.nteId && r.incidentDate >= cutoff)
+    .sort((a, b) => (a.incidentDate < b.incidentDate ? -1 : a.incidentDate > b.incidentDate ? 1 : 0));
+  if (eligible.length < NTE_VIOLATION_THRESHOLD) return null;
+
+  const bundle = eligible.slice(0, NTE_VIOLATION_THRESHOLD);
+  const subject = state.users.find(u => u.id === subjectUserId);
+  const generatedAt = fmt(0);
+  const nte = {
+    id: "NTE-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
+    subjectUserId, subjectName: subject ? subject.name : bundle[0].subjectName,
+    generatedAt, status: "awaiting_explanation",
+    explanationFilePath: null, explanationFileName: null, explanationUploadedAt: null,
+    resolutionNotes: null, resolvedByName: null, resolvedAt: null,
+  };
+  const { error: nteErr } = await sb.from("nte_reports").insert({
+    id: nte.id, subject_user_id: nte.subjectUserId, subject_name: nte.subjectName,
+    generated_at: nte.generatedAt, status: nte.status,
+  });
+  if (nteErr) { showToast(`Failed to generate NTE: ${nteErr.message}`, "danger"); return null; }
+
+  const linkResults = await Promise.all(bundle.map(r => sb.from("ir_reports").update({ nte_id: nte.id }).eq("id", r.id)));
+  const linkFail = linkResults.find(r => r.error);
+  if (linkFail) showToast(`NTE generated but failed to link a violation: ${linkFail.error.message}`, "danger");
+
+  bundle.forEach(r => { r.nteId = nte.id; });
+  state.nteReports.unshift(nte);
+  showToast(`⚠ ${nte.subjectName} has reached 3 violations within ${NTE_ROLLING_WINDOW_DAYS} days — an NTE has been generated`, "danger");
+  render();
+  return nte;
+}
+
+async function submitIRReport() {
+  if (!canFileIR()) return showToast("You don't have permission to file a report", "danger");
+  const f = state.irForm;
+  if (!f.subjectUserId) return showToast("Select who this report is about", "danger");
+  if (!f.violationCode) return showToast("Select a violation", "danger");
+  if (!f.incidentDate) return showToast("Enter the date of the incident", "danger");
+  if (!f.description || !f.description.trim()) return showToast("Add a description", "danger");
+  const subject = state.users.find(u => u.id === f.subjectUserId);
+  if (!subject) return showToast("Selected employee not found", "danger");
+
+  const isAdminFiler = state.session.role === "Admin";
+  const filedAt = fmt(0);
+  const ir = {
+    id: "IR-" + Math.floor(1000+Math.random()*9000) + (Date.now()%1000),
+    subjectUserId: subject.id, subjectName: subject.name,
+    filedByUserId: state.session.id, filedByName: state.session.name, filerRole: state.session.role,
+    category: f.category, violationCode: f.violationCode, incidentDate: f.incidentDate, description: f.description.trim(),
+    status: isAdminFiler ? "approved" : "pending",
+    reviewedByName: isAdminFiler ? state.session.name : null, reviewedAt: isAdminFiler ? filedAt : null, rejectionReason: null,
+    nteId: null, timestamp: filedAt,
+  };
+  const { error } = await sb.from("ir_reports").insert({
+    id: ir.id, subject_user_id: ir.subjectUserId, subject_name: ir.subjectName,
+    filed_by_user_id: ir.filedByUserId, filed_by_name: ir.filedByName, filer_role: ir.filerRole,
+    category: ir.category, violation_code: ir.violationCode, incident_date: ir.incidentDate, description: ir.description,
+    status: ir.status, reviewed_by: isAdminFiler ? state.session.id : null, reviewed_by_name: ir.reviewedByName, reviewed_at: ir.reviewedAt,
+    timestamp: ir.timestamp,
+  });
+  if (error) { showToast(error.message, "danger"); return; }
+
+  state.irReports.unshift(ir);
+  state.irForm = { subjectUserId: "", category: "Violation", violationCode: IR_CATEGORIES["Violation"][0], incidentDate: "", description: "" };
+  showToast(isAdminFiler ? "Incident report filed and counted" : "Incident report submitted — awaiting Admin approval", "ok");
+  render();
+
+  if (isAdminFiler) await checkAndGenerateNTE(subject.id);
+}
+
+async function approveIRReport(id) {
+  if (!isAdmin()) return showToast("Only Admins can approve reports", "danger");
+  const r = state.irReports.find(x => x.id === id);
+  if (!r || r.status !== "pending") return;
+  const reviewedAt = fmt(0);
+  const { error } = await sb.from("ir_reports").update({
+    status: "approved", reviewed_by: state.session.id, reviewed_by_name: state.session.name, reviewed_at: reviewedAt,
+  }).eq("id", id);
+  if (error) { showToast(error.message, "danger"); return; }
+  Object.assign(r, { status: "approved", reviewedByName: state.session.name, reviewedAt });
+  showToast(`Approved — counted against ${r.subjectName}`, "ok");
+  render();
+  await checkAndGenerateNTE(r.subjectUserId);
+}
+
+async function rejectIRReport(id, reason) {
+  if (!isAdmin()) return showToast("Only Admins can reject reports", "danger");
+  const r = state.irReports.find(x => x.id === id);
+  if (!r || r.status !== "pending") return;
+  const reviewedAt = fmt(0);
+  const { error } = await sb.from("ir_reports").update({
+    status: "rejected", reviewed_by: state.session.id, reviewed_by_name: state.session.name, reviewed_at: reviewedAt, rejection_reason: reason || null,
+  }).eq("id", id);
+  if (error) { showToast(error.message, "danger"); return; }
+  Object.assign(r, { status: "rejected", reviewedByName: state.session.name, reviewedAt, rejectionReason: reason || null });
+  showToast("Report rejected — not counted", "ok");
+  render();
+}
+
+async function uploadExplanation(nteId, file) {
+  const nte = state.nteReports.find(n => n.id === nteId);
+  if (!nte) return;
+  if (nte.subjectUserId !== state.session.id && !isAdmin()) return showToast("You can only upload an explanation for your own case", "danger");
+  const allowedTypes = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
+  if (!allowedTypes.includes(file.type)) return showToast("Only PDF, JPG, JPEG, or PNG files are allowed", "danger");
+  if (file.size > 10 * 1024 * 1024) return showToast("File is too large (max 10MB)", "danger");
+
+  const ext = (file.name.split(".").pop() || "dat").toLowerCase();
+  const path = `${state.session.id}/${nteId}/explanation-${Date.now()}.${ext}`;
+  const { error: upErr } = await sb.storage.from("ir-explanations").upload(path, file);
+  if (upErr) { showToast(`Upload failed: ${upErr.message}`, "danger"); return; }
+
+  const uploadedAt = fmt(0);
+  const { error } = await sb.from("nte_reports").update({
+    status: "explanation_submitted", explanation_file_path: path, explanation_file_name: file.name, explanation_uploaded_at: uploadedAt,
+  }).eq("id", nteId);
+  if (error) { showToast(error.message, "danger"); return; }
+
+  Object.assign(nte, { status: "explanation_submitted", explanationFilePath: path, explanationFileName: file.name, explanationUploadedAt: uploadedAt });
+  showToast("Explanation uploaded", "ok");
+  render();
+}
+
+async function viewExplanationFile(nteId) {
+  const nte = state.nteReports.find(n => n.id === nteId);
+  if (!nte || !nte.explanationFilePath) return;
+  const { data, error } = await sb.storage.from("ir-explanations").createSignedUrl(nte.explanationFilePath, 300);
+  if (error) { showToast(`Couldn't open file: ${error.message}`, "danger"); return; }
+  window.open(data.signedUrl, "_blank");
+}
+
+async function resolveNTECase(nteId, notes) {
+  if (!isAdmin()) return showToast("Only Admins can resolve a case", "danger");
+  const nte = state.nteReports.find(n => n.id === nteId);
+  if (!nte) return;
+  if (nte.status !== "explanation_submitted") return showToast("The case can't be closed until the employee uploads their explanation", "danger");
+  if (!notes || !notes.trim()) return showToast("Add a resolution/decision note", "danger");
+  const resolvedAt = fmt(0);
+  const { error } = await sb.from("nte_reports").update({
+    status: "resolved", resolution_notes: notes.trim(), resolved_by: state.session.id, resolved_by_name: state.session.name, resolved_at: resolvedAt,
+  }).eq("id", nteId);
+  if (error) { showToast(error.message, "danger"); return; }
+  Object.assign(nte, { status: "resolved", resolutionNotes: notes.trim(), resolvedByName: state.session.name, resolvedAt });
+  showToast("Case resolved", "ok");
+  render();
+}
+
+async function generateNTEPdf(nteId) {
+  const nte = state.nteReports.find(n => n.id === nteId);
+  if (!nte) return;
+  try { await loadScriptOnce(JSPDF_URL); } catch (e) { showToast("Couldn't load the PDF library — check your connection", "danger"); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const relatedIRs = state.irReports.filter(r => r.nteId === nte.id).sort((a,b)=> a.incidentDate < b.incidentDate ? -1 : 1);
+  const subject = state.users.find(u => u.id === nte.subjectUserId);
+
+  doc.setFontSize(14);
+  doc.text("NOTICE TO EXPLAIN", 105, 20, { align: "center" });
+  doc.setFontSize(10);
+  doc.text(`Date issued: ${nte.generatedAt}`, 14, 32);
+  doc.text(`Employee: ${nte.subjectName}${subject ? ` (${subject.role})` : ""}`, 14, 39);
+  doc.text(`Case ID: ${nte.id}`, 14, 46);
+
+  const introText = doc.splitTextToSize(
+    `This notice is issued in connection with ${relatedIRs.length} documented incident(s) within the last ${NTE_ROLLING_WINDOW_DAYS} days, listed below. ` +
+    `You are directed to submit a written explanation within five (5) calendar days from receipt of this notice, stating why no disciplinary action should be ` +
+    `taken against you in connection with the incidents described. Failure to respond within the given period may be construed as a waiver of your right to explain.`,
+    180
+  );
+  doc.text(introText, 14, 58);
+
+  let y = 58 + introText.length * 5 + 8;
+  relatedIRs.forEach((r, i) => {
+    doc.setFont(undefined, "bold");
+    doc.text(`${i+1}. ${r.violationCode} (${r.category})`, 14, y);
+    doc.setFont(undefined, "normal");
+    y += 6;
+    doc.text(`Date of incident: ${r.incidentDate}`, 18, y); y += 5;
+    doc.text(`Filed by: ${r.filedByName}`, 18, y); y += 5;
+    const descLines = doc.splitTextToSize(`Details: ${r.description}`, 176);
+    doc.text(descLines, 18, y); y += descLines.length * 5 + 4;
+  });
+
+  y += 10;
+  doc.text("_________________________", 14, y);
+  doc.text("Prepared by (Admin)", 14, y+5);
+  doc.text("_________________________", 120, y);
+  doc.text("Received by (Employee)", 120, y+5);
+
+  doc.save(`NTE-${nte.subjectName.replace(/\s+/g,'_')}-${nte.id}.pdf`);
+}
+
+function irStatusTag(status) {
+  const map = {
+    pending: `<span class="tag tag-violet">Pending</span>`,
+    approved: `<span class="tag tag-ok">Approved</span>`,
+    rejected: `<span class="tag tag-danger">Rejected</span>`,
+    awaiting_explanation: `<span class="tag tag-danger">Awaiting explanation</span>`,
+    explanation_submitted: `<span class="tag tag-violet">Awaiting decision</span>`,
+    resolved: `<span class="tag tag-ok">Resolved</span>`,
+  };
+  return map[status] || `<span class="tag">${esc(status)}</span>`;
+}
+
+function renderIR() {
+  const admin = isAdmin();
+  const filer = canFileIR();
+  if (!filer && state.irTab === "file") state.irTab = "overview";
+  return `
+    <div style="margin-bottom:16px;">
+      <h1 class="page-title">Incident Reports & Notices to Explain</h1>
+      <p class="page-sub">${admin ? "File reports, review pending submissions, and manage NTE cases." : filer ? "File a report about a coworker, and track cases involving you." : "Cases and reports involving you."}</p>
+    </div>
+    ${filer ? `
+    <div class="tabs" style="margin-bottom:18px;max-width:420px;">
+      <button class="tab-btn ${state.irTab==='file'?'active':''}" data-action="set-ir-tab" data-tab="file">File Report</button>
+      <button class="tab-btn ${state.irTab==='overview'?'active':''}" data-action="set-ir-tab" data-tab="overview">${admin?'Overview':'My Cases'}</button>
+    </div>` : ""}
+    ${filer && state.irTab === "file" ? renderIRFileForm() : admin ? renderIROverviewAdmin() : renderIROverviewSelf()}
+  `;
+}
+
+function renderIRFileForm() {
+  const f = state.irForm;
+  const codes = IR_CATEGORIES[f.category] || [];
+  return `
+    <div class="card" style="max-width:640px;">
+      <div class="grid grid-2">
+        <label class="field"><span class="lbl">Employee (subject of report)</span>
+          <select id="ir-subject">
+            <option value="">Select employee…</option>
+            ${state.users.map(u => `<option value="${u.id}" ${f.subjectUserId===u.id?'selected':''}>${esc(u.name)} — ${esc(u.role)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="field"><span class="lbl">Date of incident</span><input id="ir-date" type="date" value="${esc(f.incidentDate)}" max="${manilaDateKey(new Date())}" /></label>
+      </div>
+      <div class="grid grid-2" style="margin-top:12px;">
+        <label class="field"><span class="lbl">Category</span>
+          <select id="ir-category">
+            ${Object.keys(IR_CATEGORIES).map(c => `<option value="${esc(c)}" ${f.category===c?'selected':''}>${esc(c)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="field"><span class="lbl">Violation</span>
+          <select id="ir-violation-code">
+            ${codes.map(c => `<option value="${esc(c)}" ${f.violationCode===c?'selected':''}>${esc(c)}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <label class="field" style="margin-top:12px;"><span class="lbl">Description / what happened</span>
+        <textarea id="ir-description" rows="4" placeholder="Describe what you observed, when, and where.">${esc(f.description)}</textarea>
+      </label>
+      <p style="font-size:11.5px;color:var(--dim);margin:10px 0 0;">
+        ${isAdmin() ? "As Admin, this report counts as an official violation immediately." : "This report needs Admin approval before it counts as an official violation."}
+      </p>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+        <button class="btn btn-primary" data-action="submit-ir-report">${ICONS.clipboard} Submit report</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderNteCaseCard(n, adminView) {
+  const relatedIRs = state.irReports.filter(r => r.nteId === n.id);
+  const canUpload = !adminView && n.status === "awaiting_explanation" && n.subjectUserId === state.session.id;
+  return `
+    <div style="background:var(--field);border:1px solid var(--line);border-radius:4px;padding:12px 14px;">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start;">
+        <div>
+          <span style="font-weight:600;">${esc(n.subjectName)}</span> ${irStatusTag(n.status)}
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;">Issued ${n.generatedAt} · Case ${esc(n.id)} · ${relatedIRs.length} violation(s) bundled</div>
+          <ul style="margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--nav-text);">
+            ${relatedIRs.map(r => `<li>${esc(r.violationCode)} — ${r.incidentDate}</li>`).join("")}
+          </ul>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;">
+          <button class="btn btn-ghost btn-sm" data-action="download-nte-pdf" data-id="${n.id}">${ICONS.download} PDF</button>
+          ${n.explanationFileName ? `<button class="btn btn-ghost btn-sm" data-action="view-explanation" data-id="${n.id}">${ICONS.filePdf} ${esc(n.explanationFileName)}</button>` : ""}
+          ${canUpload ? `
+            <input type="file" id="explain-file-${n.id}" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:none;" data-nte-id="${n.id}" />
+            <button class="btn btn-primary btn-sm" data-action="trigger-upload-explanation" data-id="${n.id}">${ICONS.upload} Upload explanation</button>
+          ` : ""}
+          ${adminView && n.status === "explanation_submitted" ? `
+            <button class="btn btn-primary btn-sm" data-action="open-resolve-nte" data-id="${n.id}">Resolve case</button>
+          ` : ""}
+        </div>
+      </div>
+      ${n.status === "resolved" ? `<div style="margin-top:8px;font-size:12px;color:var(--ok);">Resolved by ${esc(n.resolvedByName)} on ${n.resolvedAt}: ${esc(n.resolutionNotes)}</div>` : ""}
+    </div>`;
+}
+
+function renderIROverviewAdmin() {
+  const pending = state.irReports.filter(r => r.status === "pending");
+  const openCases = state.nteReports.filter(n => n.status !== "resolved");
+  const allIRs = [...state.irReports].sort((a,b)=> a.timestamp < b.timestamp ? 1 : -1);
+  const allNTEs = [...state.nteReports].sort((a,b)=> a.generatedAt < b.generatedAt ? 1 : -1);
+
+  return `
+    ${pending.length > 0 ? `
+    <div class="card" style="margin-bottom:16px;">
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Pending approval <span class="tag tag-violet" style="margin-left:6px;">${pending.length}</span></h2>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        ${pending.map(r => `
+          <div style="background:var(--field);border:1px solid var(--line);border-radius:4px;padding:12px 14px;">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+              <div>
+                <span style="font-weight:600;">${esc(r.subjectName)}</span> — <span class="tag tag-danger">${esc(r.violationCode)}</span>
+                <div style="font-size:12px;color:var(--muted);margin-top:4px;">${esc(r.category)} · Incident on ${r.incidentDate} · Filed by ${esc(r.filedByName)} (${esc(r.filerRole)}) on ${r.timestamp}</div>
+                <div style="font-size:12px;color:var(--nav-text);margin-top:4px;">${esc(r.description)}</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:flex-start;flex-shrink:0;">
+                <button class="btn btn-primary btn-sm" data-action="approve-ir" data-id="${r.id}">Approve</button>
+                <button class="btn btn-danger btn-sm" data-action="reject-ir" data-id="${r.id}">Reject</button>
+              </div>
+            </div>
+          </div>`).join("")}
+      </div>
+    </div>` : ""}
+
+    ${openCases.length > 0 ? `
+    <div class="card" style="margin-bottom:16px;">
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Open NTE cases <span class="tag tag-danger" style="margin-left:6px;">${openCases.length}</span></h2>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        ${openCases.map(n => renderNteCaseCard(n, true)).join("")}
+      </div>
+    </div>` : ""}
+
+    <div class="card" style="margin-bottom:16px;">
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">All incident reports</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date filed</th><th>Employee</th><th>Category</th><th>Violation</th><th>Status</th><th>Filed by</th></tr></thead>
+          <tbody>
+            ${allIRs.length===0?`<tr><td colspan="6" style="text-align:center;color:var(--dim);padding:20px;">No reports filed yet.</td></tr>`:
+            allIRs.map(r => `
+              <tr>
+                <td style="font-size:11px;color:var(--dim);">${r.timestamp}</td>
+                <td>${esc(r.subjectName)}</td>
+                <td style="color:var(--muted);">${esc(r.category)}</td>
+                <td><span class="tag tag-danger">${esc(r.violationCode)}</span></td>
+                <td>${irStatusTag(r.status)}${r.status==='rejected'&&r.rejectionReason?`<div style="font-size:11px;color:var(--dim);margin-top:3px;">${esc(r.rejectionReason)}</div>`:''}</td>
+                <td style="color:var(--nav-text);">${esc(r.filedByName)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">All NTE cases</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date issued</th><th>Employee</th><th>Status</th><th>Explanation</th><th>Resolution</th></tr></thead>
+          <tbody>
+            ${allNTEs.length===0?`<tr><td colspan="5" style="text-align:center;color:var(--dim);padding:20px;">No NTE cases yet.</td></tr>`:
+            allNTEs.map(n => `
+              <tr>
+                <td style="font-size:11px;color:var(--dim);">${n.generatedAt}</td>
+                <td>${esc(n.subjectName)}</td>
+                <td>${irStatusTag(n.status)}</td>
+                <td>${n.explanationFileName ? `<button class="btn btn-ghost btn-sm" data-action="view-explanation" data-id="${n.id}">${esc(n.explanationFileName)}</button>` : '—'}</td>
+                <td style="color:var(--muted);font-size:12px;max-width:220px;">${n.resolutionNotes?esc(n.resolutionNotes):'—'}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderIROverviewSelf() {
+  // RLS already scopes state.irReports/nteReports to rows where this
+  // user is the subject or the filer — no extra client-side filtering
+  // needed for privacy, it's enforced at the database level.
+  const myCases = [...state.nteReports].sort((a,b)=> a.generatedAt < b.generatedAt ? 1 : -1);
+  const reportsAboutMe = state.irReports.filter(r => r.subjectUserId === state.session.id).sort((a,b)=> a.timestamp < b.timestamp ? 1 : -1);
+  const reportsIFiled = state.irReports.filter(r => r.filedByUserId === state.session.id).sort((a,b)=> a.timestamp < b.timestamp ? 1 : -1);
+
+  return `
+    ${myCases.length > 0 ? `
+    <div class="card" style="margin-bottom:16px;">
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Your NTE cases</h2>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        ${myCases.map(n => renderNteCaseCard(n, false)).join("")}
+      </div>
+    </div>` : ""}
+
+    <div class="card" style="margin-bottom:16px;">
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Reports about you</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date filed</th><th>Category</th><th>Violation</th><th>Status</th></tr></thead>
+          <tbody>
+            ${reportsAboutMe.length===0?`<tr><td colspan="4" style="text-align:center;color:var(--dim);padding:20px;">No reports about you.</td></tr>`:
+            reportsAboutMe.map(r => `
+              <tr>
+                <td style="font-size:11px;color:var(--dim);">${r.timestamp}</td>
+                <td style="color:var(--muted);">${esc(r.category)}</td>
+                <td><span class="tag tag-danger">${esc(r.violationCode)}</span></td>
+                <td>${irStatusTag(r.status)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    ${canFileIR() ? `
+    <div class="card">
+      <h2 style="font-size:13.5px;font-weight:600;margin:0 0 10px;">Reports you've filed</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date filed</th><th>Employee</th><th>Violation</th><th>Status</th></tr></thead>
+          <tbody>
+            ${reportsIFiled.length===0?`<tr><td colspan="4" style="text-align:center;color:var(--dim);padding:20px;">You haven't filed any reports.</td></tr>`:
+            reportsIFiled.map(r => `
+              <tr>
+                <td style="font-size:11px;color:var(--dim);">${r.timestamp}</td>
+                <td>${esc(r.subjectName)}</td>
+                <td><span class="tag tag-danger">${esc(r.violationCode)}</span></td>
+                <td>${irStatusTag(r.status)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>` : ""}
+  `;
 }
 
 /* ---------------------------------------------------------
@@ -2997,7 +3525,6 @@ function renderProfile() {
 --------------------------------------------------------- */
 function attachHandlers() {
   const app = document.getElementById("app");
-  if (window.NteIr) NteIr.wireHandlers(app);
 
   app.onclick = async (e) => {
     const el = e.target.closest("[data-action]");
@@ -3061,6 +3588,22 @@ function attachHandlers() {
       const reason = prompt("Reason for rejecting this adjustment (optional):");
       if (reason === null) return; // cancelled
       await rejectAdjustment(el.dataset.id, reason.trim());
+    }
+    else if (action === "set-ir-tab") { state.irTab = el.dataset.tab; render(); }
+    else if (action === "submit-ir-report") await submitIRReport();
+    else if (action === "approve-ir") await approveIRReport(el.dataset.id);
+    else if (action === "reject-ir") {
+      const reason = prompt("Reason for rejecting this report (optional):");
+      if (reason === null) return;
+      await rejectIRReport(el.dataset.id, reason.trim());
+    }
+    else if (action === "download-nte-pdf") await generateNTEPdf(el.dataset.id);
+    else if (action === "view-explanation") await viewExplanationFile(el.dataset.id);
+    else if (action === "trigger-upload-explanation") document.getElementById(`explain-file-${el.dataset.id}`)?.click();
+    else if (action === "open-resolve-nte") {
+      const notes = prompt("Resolution / decision notes for this case:");
+      if (notes === null) return;
+      await resolveNTECase(el.dataset.id, notes.trim());
     }
     else if (action === "add-locator") {
       const f = state._locForm || {};
@@ -3233,6 +3776,18 @@ function attachHandlers() {
       if (state.labelPrint) { state.labelPrint.templateId = e.target.value; state.labelPrint.overrides = {}; render(); }
     }
     else if (e.target.id === "lbl-field-bind") { updateLabelField(e.target.dataset.id, { bind: e.target.value }); render(); }
+    else if (e.target.id === "ir-subject") { state.irForm.subjectUserId = e.target.value; }
+    else if (e.target.id === "ir-category") {
+      state.irForm.category = e.target.value;
+      state.irForm.violationCode = (IR_CATEGORIES[e.target.value] || [])[0] || "";
+      render();
+    }
+    else if (e.target.id === "ir-violation-code") { state.irForm.violationCode = e.target.value; }
+    else if (e.target.id.startsWith("explain-file-")) {
+      const nteId = e.target.dataset.nteId;
+      const file = e.target.files && e.target.files[0];
+      if (file) await uploadExplanation(nteId, file);
+    }
     else if (e.target.id === "lbl-field-align") { updateLabelField(e.target.dataset.id, { align: e.target.value }); render(); }
     else if (e.target.id === "lbl-field-bold") { updateLabelField(e.target.dataset.id, { bold: e.target.checked }); render(); }
   };
@@ -3304,6 +3859,8 @@ function attachHandlers() {
       if (e.target.id === "adj-delta") state._adjForm.delta = e.target.value;
       if (e.target.id === "adj-notes") state._adjForm.notes = e.target.value;
     }
+    else if (e.target.id === "ir-description") { state.irForm.description = e.target.value; }
+    else if (e.target.id === "ir-date") { state.irForm.incidentDate = e.target.value; }
     else if (e.target.classList.contains("row-sku") || e.target.classList.contains("row-desc") || e.target.classList.contains("row-qty") || e.target.classList.contains("row-notes") || e.target.classList.contains("row-price")) {
       const idx = +e.target.dataset.idx;
       const field = e.target.dataset.field;
@@ -3350,9 +3907,6 @@ function refocus(idOrSelector, isSelector) {
   });
 }
 
-if (window.NteIr) {
-  NteIr.integrate({ state, sb, showToast, render, fmt, esc, isAdmin, askConfirm, loadScriptOnce, statCard, ICONS, JSPDF_URL });
-}
 boot();
 </script>
 </body>
